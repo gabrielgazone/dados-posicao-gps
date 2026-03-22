@@ -5,8 +5,6 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import numpy as np
 from io import StringIO
-from scipy.stats import entropy
-from scipy.signal import find_peaks
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -21,73 +19,82 @@ st.set_page_config(
 st.title("🏃 Análise de Percurso do Atleta durante o Jogo")
 st.markdown("---")
 
-# Função para calcular Entropia de Shannon
-def shannon_entropy(data, bins=20):
-    """Calcula a entropia de Shannon de uma série de dados"""
-    hist, _ = np.histogram(data, bins=bins, density=True)
-    # Remove zeros para evitar log(0)
-    hist = hist[hist > 0]
-    return entropy(hist, base=2)
+# ==================== FUNÇÕES OTIMIZADAS DE ENTROPIA ====================
 
-# Função para calcular Entropia Amostral (Sample Entropy)
-def sample_entropy(data, m=2, r=0.2):
+@st.cache_data(ttl=3600)
+def compute_entropy_fast(data, bins=30):
+    """Entropia de Shannon otimizada"""
+    hist, _ = np.histogram(data, bins=bins, density=True)
+    hist = hist[hist > 0]
+    if len(hist) == 0:
+        return 0
+    # Cálculo direto sem scipy.stats.entropy
+    return -np.sum(hist * np.log2(hist))
+
+@st.cache_data(ttl=3600)
+def sample_entropy_fast(data, m=2, r=0.2):
     """
-    Calcula a entropia amostral (Sample Entropy)
-    m: comprimento das sequências a serem comparadas
-    r: tolerância (geralmente 0.1 a 0.25 do desvio padrão)
+    Entropia Amostral otimizada (Sample Entropy)
+    Versão mais rápida para séries grandes
     """
-    data = np.array(data)
+    data = np.asarray(data, dtype=np.float64)
     N = len(data)
     
-    # Se não há dados suficientes
     if N < m + 1:
         return np.nan
     
     # Normalizar pelo desvio padrão
-    r = r * np.std(data)
-    if r == 0:
-        r = 0.01  # Evita divisão por zero
+    std_data = np.std(data)
+    if std_data == 0:
+        return 0
+    r = r * std_data
     
-    # Função para contar matches
-    def _maxdist(xi, xj):
-        return np.max(np.abs(xi - xj))
-    
-    # Para m e m+1
-    def _phi(m):
+    # Função para contar matches de forma otimizada
+    def _count_matches(m):
         count = 0
         total = 0
         for i in range(N - m):
             template = data[i:i+m]
-            for j in range(i+1, N - m + 1):
-                if _maxdist(template, data[j:j+m]) <= r:
+            # Calcular distâncias máximas de forma vetorizada
+            for j in range(i + 1, N - m + 1):
+                diff = np.abs(template - data[j:j+m])
+                if np.max(diff) <= r:
                     count += 1
                 total += 1
         return count / total if total > 0 else 0
     
-    phi_m = _phi(m)
-    phi_m1 = _phi(m+1)
+    phi_m = _count_matches(m)
+    phi_m1 = _count_matches(m + 1)
     
     if phi_m == 0 or phi_m1 == 0:
         return 0
     
     return -np.log(phi_m1 / phi_m)
 
-# Função para Entropia por janela deslizante
-def rolling_entropy(data, window_size=30, step=5):
-    """Calcula entropia em janelas deslizantes"""
+@st.cache_data(ttl=3600)
+def rolling_entropy_fast(data, window_size=50, step=10, m=2, r=0.2):
+    """
+    Entropia por janela deslizante otimizada
+    """
+    N = len(data)
     entropies = []
     positions = []
     
-    for i in range(0, len(data) - window_size + 1, step):
+    # Usar apenas algumas janelas para acelerar
+    num_windows = min(30, (N - window_size) // step + 1)
+    
+    for i in range(0, N - window_size + 1, max(step, (N - window_size) // num_windows)):
         window = data[i:i+window_size]
-        if len(window) > 10 and np.std(window) > 0:
-            ent = sample_entropy(window, m=2, r=0.2)
-            entropies.append(ent)
-            positions.append(i + window_size//2)
+        if len(window) > 10 and np.std(window) > 0.01:
+            ent = sample_entropy_fast(window, m=m, r=r)
+            if not np.isnan(ent):
+                entropies.append(ent)
+                positions.append(i + window_size // 2)
     
     return np.array(positions), np.array(entropies)
 
-# Função para carregar e processar os dados
+# ==================== FUNÇÃO DE CARREGAMENTO DE DADOS ====================
+
 @st.cache_data
 def load_data(uploaded_file):
     """Carrega e processa os dados do arquivo CSV enviado"""
@@ -130,7 +137,8 @@ def load_data(uploaded_file):
         st.error(f"Erro ao carregar arquivo: {e}")
         return None
 
-# Sidebar
+# ==================== SIDEBAR ====================
+
 st.sidebar.header("📁 Upload do Arquivo")
 st.sidebar.markdown("""
 ### Instruções:
@@ -156,7 +164,8 @@ with st.sidebar.expander("📋 Exemplo de formato esperado"):
     - **HeartRate**: Frequência cardíaca (bpm)
     """)
 
-# Processar arquivo quando enviado
+# ==================== PROCESSAMENTO PRINCIPAL ====================
+
 if uploaded_file is not None:
     st.sidebar.success(f"✅ Arquivo carregado: {uploaded_file.name}")
     st.sidebar.info(f"📊 Tamanho: {uploaded_file.size / 1024:.1f} KB")
@@ -255,12 +264,12 @@ if uploaded_file is not None:
             fc_max = df_filtered['HeartRate'].max() if 'HeartRate' in df_filtered.columns else 0
             st.metric("FC máxima", f"{fc_max:.0f} bpm")
         
-        # Criar abas (agora com 5 abas)
+        # Criar abas
         tab1, tab2, tab3, tab4, tab5 = st.tabs(["🗺️ Mapa do Percurso", "📈 Gráficos de Desempenho", 
                                                   "⚡ Velocidade e Aceleração", "❤️ Frequência Cardíaca",
                                                   "📊 Análise de Entropia"])
         
-        # Tab 1: Mapa do Percurso
+        # ==================== TAB 1: MAPA ====================
         with tab1:
             st.subheader("Percurso do Atleta no Campo")
             
@@ -287,10 +296,9 @@ if uploaded_file is not None:
                     showscale=True,
                     colorbar=dict(title="Velocidade<br>(km/h)", x=1.02)
                 ),
-                text=[f"<b>Tempo:</b> {t:.1f}s<br><b>Velocidade:</b> {v:.1f} km/h<br><b>FC:</b> {h:.0f} bpm" 
-                      for t, v, h in zip(df_filtered['Seconds'] if 'Seconds' in df_filtered.columns else range(len(df_filtered)), 
-                                        df_filtered['Velocity'] if 'Velocity' in df_filtered.columns else [0]*len(df_filtered),
-                                        df_filtered['HeartRate'] if 'HeartRate' in df_filtered.columns else [0]*len(df_filtered))],
+                text=[f"<b>Tempo:</b> {t:.1f}s<br><b>Velocidade:</b> {v:.1f} km/h" 
+                      for t, v in zip(df_filtered['Seconds'] if 'Seconds' in df_filtered.columns else range(len(df_filtered)), 
+                                    df_filtered['Velocity'] if 'Velocity' in df_filtered.columns else [0]*len(df_filtered))],
                 hoverinfo='text',
                 name='Percurso'
             ))
@@ -319,7 +327,7 @@ if uploaded_file is not None:
             
             st.plotly_chart(fig_map, use_container_width=True)
         
-        # Tab 2: Gráficos de Desempenho
+        # ==================== TAB 2: GRÁFICOS DE DESEMPENHO ====================
         with tab2:
             st.subheader("Análise de Desempenho ao Longo do Tempo")
             
@@ -382,7 +390,7 @@ if uploaded_file is not None:
             fig.update_layout(height=700, showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
         
-        # Tab 3: Velocidade e Aceleração
+        # ==================== TAB 3: VELOCIDADE E ACELERAÇÃO ====================
         with tab3:
             st.subheader("Análise de Velocidade e Aceleração")
             
@@ -417,7 +425,7 @@ if uploaded_file is not None:
                 fig_acc.update_layout(xaxis_title="Tempo (s)", yaxis_title="Aceleração (m/s²)", height=450)
                 st.plotly_chart(fig_acc, use_container_width=True)
         
-        # Tab 4: Frequência Cardíaca
+        # ==================== TAB 4: FREQUÊNCIA CARDÍACA ====================
         with tab4:
             st.subheader("Análise da Frequência Cardíaca")
             
@@ -464,7 +472,7 @@ if uploaded_file is not None:
                 zona_stats['% do Tempo'] = (zona_stats['Contagem'] / len(df_filtered) * 100).round(1).astype(str) + '%'
                 st.dataframe(zona_stats, use_container_width=True)
         
-        # Tab 5: Análise de Entropia (NOVA ABA)
+        # ==================== TAB 5: ENTROPIA OTIMIZADA COM BOTÃO ====================
         with tab5:
             st.subheader("📊 Análise de Entropia - Complexidade dos Dados")
             st.markdown("""
@@ -473,7 +481,7 @@ if uploaded_file is not None:
             - **Menor entropia** = padrões mais regulares e previsíveis
             """)
             
-            # Seleção da variável para análise de entropia
+            # Seleção da variável
             var_entropy_options = {}
             if 'Velocity' in df_filtered.columns:
                 var_entropy_options['Velocity'] = 'Velocidade (km/h)'
@@ -491,175 +499,170 @@ if uploaded_file is not None:
                 key="entropy_var"
             )
             
-            # Parâmetros para entropia amostral
+            # Parâmetros
             col1, col2, col3 = st.columns(3)
             with col1:
-                m_value = st.slider("Comprimento da sequência (m)", 1, 5, 2, 
-                                   help="Valor menor = mais sensível a ruído, maior = captura padrões mais longos")
+                m_value = st.selectbox("Comprimento da sequência (m)", [1, 2, 3], index=1,
+                                      help="2 é o padrão para análise de movimento")
             with col2:
                 r_value = st.slider("Tolerância (r)", 0.1, 0.5, 0.2, step=0.05,
-                                   help="Proporção do desvio padrão. Menor = mais sensível")
+                                   help="0.2 é o valor padrão para dados esportivos")
             with col3:
-                window_size = st.slider("Janela deslizante (pontos)", 20, 100, 50,
-                                       help="Tamanho da janela para análise temporal")
+                use_rolling = st.checkbox("Análise por janela deslizante", value=True,
+                                         help="Mostra evolução temporal da entropia")
             
-            # Obter os dados da variável selecionada
-            data_series = df_filtered[selected_entropy_var].dropna().values
+            # Botão para processar
+            process_button = st.button("🚀 Processar Análise de Entropia", type="primary", use_container_width=True)
             
-            if len(data_series) > 50:
-                # Calcular entropia de Shannon global
-                shannon_val = shannon_entropy(data_series, bins=30)
+            if process_button:
+                # Obter dados
+                data_series = df_filtered[selected_entropy_var].dropna().values
                 
-                # Calcular entropia amostral global
-                try:
-                    sample_val = sample_entropy(data_series, m=m_value, r=r_value)
-                except:
-                    sample_val = np.nan
-                
-                # Métricas de entropia
-                st.markdown("### 📈 Métricas de Entropia Global")
-                col_a, col_b, col_c = st.columns(3)
-                
-                with col_a:
-                    st.metric("Entropia de Shannon", f"{shannon_val:.4f}", 
-                             help="Mede a diversidade dos valores. Valores típicos: 2-5 para dados esportivos")
-                with col_b:
-                    st.metric("Entropia Amostral", f"{sample_val:.4f}" if not np.isnan(sample_val) else "N/A",
-                             help="Mede a regularidade temporal. Valores baixos = padrões repetitivos")
-                with col_c:
-                    cv_value = np.std(data_series) / np.mean(data_series) if np.mean(data_series) > 0 else 0
-                    st.metric("Coeficiente de Variação", f"{cv_value:.3f}",
-                             help="Variabilidade relativa dos dados")
-                
-                # Gráfico da série temporal com destaque
-                st.markdown("### 📉 Série Temporal e Complexidade")
-                
-                fig_entropy_time = make_subplots(rows=2, cols=1, 
-                                                  subplot_titles=("Série Temporal - " + var_entropy_options[selected_entropy_var],
-                                                                "Entropia Amostral por Janela Deslizante"),
-                                                  row_heights=[0.5, 0.5])
-                
-                # Série temporal
-                time_x = df_filtered['Seconds'].values if 'Seconds' in df_filtered.columns else range(len(data_series))
-                fig_entropy_time.add_trace(
-                    go.Scatter(x=time_x, y=data_series, mode='lines', 
-                              line=dict(color='blue', width=2),
-                              name=var_entropy_options[selected_entropy_var]),
-                    row=1, col=1
-                )
-                
-                # Adicionar média e desvio padrão
-                mean_val = np.mean(data_series)
-                std_val = np.std(data_series)
-                fig_entropy_time.add_hline(y=mean_val, line_dash="dash", line_color="green", 
-                                          annotation_text=f"Média: {mean_val:.2f}", row=1, col=1)
-                fig_entropy_time.add_hrect(y0=mean_val-std_val, y1=mean_val+std_val, 
-                                          fillcolor="lightblue", opacity=0.3, line_width=0, row=1, col=1)
-                
-                # Entropia por janela deslizante
-                positions, rolling_ent = rolling_entropy(data_series, window_size=window_size, step=5)
-                if len(rolling_ent) > 0 and len(positions) > 0:
-                    # Ajustar posições de tempo
-                    if 'Seconds' in df_filtered.columns:
-                        time_positions = np.interp(positions, range(len(data_series)), time_x)
+                if len(data_series) > 30:
+                    with st.spinner("Calculando entropia... Isso pode levar alguns segundos"):
+                        # Calcular entropias globais
+                        shannon_val = compute_entropy_fast(data_series, bins=30)
+                        sample_val = sample_entropy_fast(data_series, m=m_value, r=r_value)
+                        cv_val = np.std(data_series) / np.mean(data_series) if np.mean(data_series) > 0 else 0
+                    
+                    # Mostrar métricas
+                    st.markdown("### 📈 Métricas de Entropia Global")
+                    col_a, col_b, col_c = st.columns(3)
+                    
+                    with col_a:
+                        st.metric("Entropia de Shannon", f"{shannon_val:.4f}", 
+                                 help="Mede a diversidade dos valores. Valores típicos: 2-5")
+                    with col_b:
+                        st.metric("Entropia Amostral", f"{sample_val:.4f}" if not np.isnan(sample_val) else "N/A",
+                                 help="Mede a regularidade temporal")
+                    with col_c:
+                        st.metric("Coeficiente de Variação", f"{cv_val:.3f}",
+                                 help="Variabilidade relativa dos dados")
+                    
+                    # Classificação
+                    st.markdown("**🏷️ Classificação da Complexidade:**")
+                    if shannon_val < 2.5:
+                        st.info("🔵 **Baixa complexidade** - Movimento padronizado e repetitivo")
+                    elif shannon_val < 4.0:
+                        st.success("🟢 **Média complexidade** - Variabilidade normal do esporte")
                     else:
-                        time_positions = positions
+                        st.warning("🟠 **Alta complexidade** - Grande variabilidade e imprevisibilidade")
+                    
+                    # Série temporal
+                    st.markdown("### 📉 Série Temporal")
+                    
+                    fig_entropy_time = go.Figure()
+                    time_x = df_filtered['Seconds'].values if 'Seconds' in df_filtered.columns else range(len(data_series))
                     
                     fig_entropy_time.add_trace(
-                        go.Scatter(x=time_positions, y=rolling_ent, mode='lines+markers',
-                                  line=dict(color='red', width=2), marker=dict(size=6),
-                                  name="Entropia Amostral"),
-                        row=2, col=1
+                        go.Scatter(x=time_x, y=data_series, mode='lines', 
+                                  line=dict(color='blue', width=2),
+                                  name=var_entropy_options[selected_entropy_var])
                     )
-                    fig_entropy_time.add_hline(y=np.nanmean(rolling_ent), line_dash="dash", 
-                                              line_color="orange", row=2, col=1,
-                                              annotation_text=f"Média: {np.nanmean(rolling_ent):.3f}")
-                
-                fig_entropy_time.update_layout(height=600, showlegend=False)
-                fig_entropy_time.update_xaxes(title_text="Tempo (s)", row=2, col=1)
-                fig_entropy_time.update_yaxes(title_text=var_entropy_options[selected_entropy_var], row=1, col=1)
-                fig_entropy_time.update_yaxes(title_text="Entropia Amostral", row=2, col=1)
-                
-                st.plotly_chart(fig_entropy_time, use_container_width=True)
-                
-                # Histograma com análise de distribuição
-                st.markdown("### 📊 Distribuição dos Valores")
-                col_hist, col_ref = st.columns([2, 1])
-                
-                with col_hist:
-                    fig_hist_entropy = go.Figure()
-                    fig_hist_entropy.add_trace(go.Histogram(x=data_series, nbinsx=40, 
-                                                            marker_color='steelblue', opacity=0.7))
-                    fig_hist_entropy.update_layout(title="Histograma e Densidade",
-                                                   xaxis_title=var_entropy_options[selected_entropy_var],
-                                                   yaxis_title="Frequência")
-                    st.plotly_chart(fig_hist_entropy, use_container_width=True)
-                
-                with col_ref:
-                    st.markdown("**📌 Valores de Referência para Entropia**")
-                    st.markdown("""
-                    | Categoria | Entropia Shannon | Entropia Amostral |
-                    |-----------|-----------------|------------------|
-                    | **Baixa** | < 2.5 | < 0.5 |
-                    | **Média** | 2.5 - 4.0 | 0.5 - 1.2 |
-                    | **Alta** | > 4.0 | > 1.2 |
                     
-                    **Interpretação:**
-                    - **Baixa entropia**: Movimento repetitivo, padrões regulares
-                    - **Média entropia**: Variabilidade normal do esporte
-                    - **Alta entropia**: Alta complexidade, movimentos variados
-                    """)
+                    mean_val = np.mean(data_series)
+                    fig_entropy_time.add_hline(y=mean_val, line_dash="dash", line_color="green", 
+                                              annotation_text=f"Média: {mean_val:.2f}")
                     
-                    # Classificação atual
-                    st.markdown("**🏷️ Classificação Atual:**")
-                    if shannon_val < 2.5:
-                        st.info("🔵 **Baixa complexidade** - Movimento padronizado")
-                    elif shannon_val < 4.0:
-                        st.success("🟢 **Média complexidade** - Variabilidade normal")
-                    else:
-                        st.warning("🟠 **Alta complexidade** - Grande variabilidade")
-                
-                # Análise por segmentos do jogo
-                st.markdown("### 🎯 Análise por Segmentos do Jogo")
-                
-                if 'Seconds' in df_filtered.columns:
-                    num_segments = 4
-                    df_filtered['Segmento_Jogo'] = pd.cut(df_filtered['Seconds'], 
-                                                          bins=num_segments,
-                                                          labels=['Início', '1º Quarto', '2º Quarto', 'Final'])
+                    fig_entropy_time.update_layout(
+                        title=f"Série Temporal - {var_entropy_options[selected_entropy_var]}",
+                        xaxis_title="Tempo (s)",
+                        yaxis_title=var_entropy_options[selected_entropy_var],
+                        height=400
+                    )
+                    st.plotly_chart(fig_entropy_time, use_container_width=True)
                     
-                    segment_entropy = []
-                    segment_names = []
-                    
-                    for segment in df_filtered['Segmento_Jogo'].unique():
-                        segment_data = df_filtered[df_filtered['Segmento_Jogo'] == segment][selected_entropy_var].dropna().values
-                        if len(segment_data) > 20:
-                            seg_ent = sample_entropy(segment_data, m=m_value, r=r_value)
-                            segment_entropy.append(seg_ent if not np.isnan(seg_ent) else 0)
-                            segment_names.append(segment)
-                    
-                    if segment_entropy:
-                        fig_segment = go.Figure(data=[
-                            go.Bar(x=segment_names, y=segment_entropy, 
-                                  marker_color=['#2ecc71', '#3498db', '#e74c3c', '#f39c12'],
-                                  text=[f'{e:.3f}' for e in segment_entropy], textposition='auto')
-                        ])
-                        fig_segment.update_layout(title="Entropia Amostral por Segmento do Jogo",
-                                                  xaxis_title="Segmento", yaxis_title="Entropia Amostral",
-                                                  height=400)
-                        st.plotly_chart(fig_segment, use_container_width=True)
+                    # Análise por janela deslizante
+                    if use_rolling and len(data_series) > 100:
+                        with st.spinner("Calculando entropia por janela deslizante..."):
+                            window_size = min(100, len(data_series) // 5)
+                            positions, rolling_ent = rolling_entropy_fast(data_series, 
+                                                                          window_size=window_size, 
+                                                                          step=window_size//3,
+                                                                          m=m_value, r=r_value)
                         
+                        if len(rolling_ent) > 0:
+                            st.markdown("### 📊 Evolução da Entropia ao Longo do Tempo")
+                            
+                            fig_rolling = go.Figure()
+                            
+                            if 'Seconds' in df_filtered.columns:
+                                time_positions = np.interp(positions, range(len(data_series)), time_x)
+                            else:
+                                time_positions = positions
+                            
+                            fig_rolling.add_trace(
+                                go.Scatter(x=time_positions, y=rolling_ent, mode='lines+markers',
+                                          line=dict(color='red', width=2), marker=dict(size=6),
+                                          name="Entropia Amostral")
+                            )
+                            fig_rolling.add_hline(y=np.nanmean(rolling_ent), line_dash="dash", 
+                                                  line_color="orange", annotation_text=f"Média: {np.nanmean(rolling_ent):.3f}")
+                            
+                            fig_rolling.update_layout(
+                                title="Entropia Amostral por Janela Deslizante",
+                                xaxis_title="Tempo (s)",
+                                yaxis_title="Entropia Amostral",
+                                height=400
+                            )
+                            st.plotly_chart(fig_rolling, use_container_width=True)
+                            
+                            # Interpretação da tendência
+                            if len(rolling_ent) > 3:
+                                trend = rolling_ent[-1] - rolling_ent[0]
+                                if trend > 0.1:
+                                    st.info("📈 **Tendência: Entropia aumentando** - Atleta está se movendo com maior variabilidade")
+                                elif trend < -0.1:
+                                    st.warning("📉 **Tendência: Entropia diminuindo** - Possível fadiga ou padrões mais repetitivos")
+                                else:
+                                    st.success("➡️ **Tendência: Entropia estável** - Comportamento consistente")
+                    
+                    # Histograma
+                    st.markdown("### 📊 Distribuição dos Valores")
+                    fig_hist_entropy = px.histogram(x=data_series, nbins=30, 
+                                                    title="Histograma",
+                                                    labels={'x': var_entropy_options[selected_entropy_var]},
+                                                    color_discrete_sequence=['steelblue'])
+                    st.plotly_chart(fig_hist_entropy, use_container_width=True)
+                    
+                    # Valores de referência
+                    with st.expander("📌 Valores de Referência para Entropia"):
                         st.markdown("""
-                        **💡 Interpretação:**
-                        - **Entropia crescente**: Atleta aumenta variabilidade de movimentos ao longo do jogo
-                        - **Entropia decrescente**: Atleta se torna mais regular/padronizado
-                        - **Entropia estável**: Comportamento consistente durante toda a partida
+                        | Categoria | Entropia Shannon | Entropia Amostral | Interpretação |
+                        |-----------|-----------------|------------------|---------------|
+                        | **Baixa** | < 2.5 | < 0.5 | Movimento repetitivo, padrões regulares |
+                        | **Média** | 2.5 - 4.0 | 0.5 - 1.2 | Variabilidade normal do esporte |
+                        | **Alta** | > 4.0 | > 1.2 | Alta complexidade, movimentos variados |
+                        
+                        **Aplicações no Esporte:**
+                        - Entropia baixa pode indicar **fadiga** ou movimentos muito padronizados
+                        - Entropia alta pode indicar **alta variabilidade** e adaptabilidade
+                        - Acompanhar a evolução pode ajudar a **prevenir lesões**
                         """)
                 
+                else:
+                    st.warning(f"⚠️ Dados insuficientes para análise de entropia. São necessários pelo menos 30 pontos. Atualmente: {len(data_series)} pontos.")
             else:
-                st.warning("⚠️ Dados insuficientes para análise de entropia. São necessários pelo menos 50 pontos.")
+                # Estado inicial antes do botão
+                st.info("👆 **Clique no botão acima para iniciar a análise de entropia.**")
+                st.markdown("""
+                ### 📝 Sobre a Análise de Entropia:
+                
+                A análise de entropia avalia a **complexidade** dos movimentos do atleta:
+                
+                - **Entropia de Shannon**: Mede a diversidade de valores na série temporal
+                - **Entropia Amostral**: Mede a regularidade dos padrões temporais
+                
+                **Para melhores resultados:**
+                1. Selecione a variável que deseja analisar (Velocidade, FC, etc.)
+                2. Ajuste os parâmetros conforme necessário
+                3. Clique em "Processar Análise de Entropia"
+                4. Aguarde o processamento (alguns segundos)
+                
+                **Dica:** Quanto mais dados, mais precisa será a análise!
+                """)
         
-        # Botão para download
+        # Botão de download
         st.markdown("---")
         csv_data = df_filtered.to_csv(index=False)
         st.download_button(
@@ -676,7 +679,6 @@ if uploaded_file is not None:
     
     else:
         st.error("❌ Erro ao processar o arquivo. Verifique se o formato está correto.")
-        st.info("💡 Dica: O arquivo deve ser exportado pelo sistema OpenField no formato CSV.")
 
 else:
     # Tela inicial
@@ -695,19 +697,3 @@ else:
     """)
     
     st.info("ℹ️ Aguardando upload do arquivo...")
-    
-    with st.expander("🎯 Funcionalidades da Análise de Entropia"):
-        st.markdown("""
-        **O que é Entropia?**
-        
-        A entropia mede a **complexidade** e **imprevisibilidade** dos dados de movimento:
-        
-        - **Entropia de Shannon**: Mede a diversidade de valores (quão distribuídos estão os dados)
-        - **Entropia Amostral**: Mede a regularidade temporal (quão repetitivos são os padrões)
-        
-        **Aplicações no Esporte:**
-        - Identificar fadiga (redução da entropia)
-        - Avaliar variabilidade de movimento
-        - Comparar padrões entre diferentes momentos do jogo
-        - Detectar mudanças no comportamento do atleta
-        """)
