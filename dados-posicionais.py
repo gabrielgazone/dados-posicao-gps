@@ -19,17 +19,7 @@ st.set_page_config(
 st.title("🏃 Análise de Percurso do Atleta durante o Jogo")
 st.markdown("---")
 
-# ==================== FUNÇÕES OTIMIZADAS DE ENTROPIA ====================
-
-@st.cache_data(ttl=3600)
-def compute_entropy_fast(data, bins=30):
-    """Entropia de Shannon otimizada"""
-    hist, _ = np.histogram(data, bins=bins, density=True)
-    hist = hist[hist > 0]
-    if len(hist) == 0:
-        return 0
-    # Cálculo direto sem scipy.stats.entropy
-    return -np.sum(hist * np.log2(hist))
+# ==================== FUNÇÕES DE ENTROPIA AMOSTRAL OTIMIZADA ====================
 
 @st.cache_data(ttl=3600)
 def sample_entropy_fast(data, m=2, r=0.2):
@@ -72,9 +62,9 @@ def sample_entropy_fast(data, m=2, r=0.2):
     return -np.log(phi_m1 / phi_m)
 
 @st.cache_data(ttl=3600)
-def rolling_entropy_fast(data, window_size=50, step=10, m=2, r=0.2):
+def rolling_sample_entropy(data, window_size=50, step=10, m=2, r=0.2):
     """
-    Entropia por janela deslizante otimizada
+    Entropia Amostral por janela deslizante otimizada
     """
     N = len(data)
     entropies = []
@@ -159,6 +149,7 @@ with st.sidebar.expander("📋 Exemplo de formato esperado"):
     - **Timestamp**: Data/hora da leitura
     - **Seconds**: Tempo em segundos
     - **Velocity**: Velocidade (km/h)
+    - **Acceleration**: Aceleração (m/s²)
     - **Latitude**: Coordenada de latitude
     - **Longitude**: Coordenada de longitude
     - **HeartRate**: Frequência cardíaca (bpm)
@@ -264,10 +255,10 @@ if uploaded_file is not None:
             fc_max = df_filtered['HeartRate'].max() if 'HeartRate' in df_filtered.columns else 0
             st.metric("FC máxima", f"{fc_max:.0f} bpm")
         
-        # Criar abas
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["🗺️ Mapa do Percurso", "📈 Gráficos de Desempenho", 
-                                                  "⚡ Velocidade e Aceleração", "❤️ Frequência Cardíaca",
-                                                  "📊 Análise de Entropia"])
+        # Criar abas (agora com 6 abas)
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🗺️ Mapa do Percurso", "📈 Gráficos de Desempenho", 
+                                                        "⚡ Velocidade e Aceleração", "❤️ Frequência Cardíaca",
+                                                        "🔄 Aceleração vs Velocidade", "📊 Entropia Amostral"])
         
         # ==================== TAB 1: MAPA ====================
         with tab1:
@@ -296,9 +287,10 @@ if uploaded_file is not None:
                     showscale=True,
                     colorbar=dict(title="Velocidade<br>(km/h)", x=1.02)
                 ),
-                text=[f"<b>Tempo:</b> {t:.1f}s<br><b>Velocidade:</b> {v:.1f} km/h" 
-                      for t, v in zip(df_filtered['Seconds'] if 'Seconds' in df_filtered.columns else range(len(df_filtered)), 
-                                    df_filtered['Velocity'] if 'Velocity' in df_filtered.columns else [0]*len(df_filtered))],
+                text=[f"<b>Tempo:</b> {t:.1f}s<br><b>Velocidade:</b> {v:.1f} km/h<br><b>FC:</b> {h:.0f} bpm" 
+                      for t, v, h in zip(df_filtered['Seconds'] if 'Seconds' in df_filtered.columns else range(len(df_filtered)), 
+                                        df_filtered['Velocity'] if 'Velocity' in df_filtered.columns else [0]*len(df_filtered),
+                                        df_filtered['HeartRate'] if 'HeartRate' in df_filtered.columns else [0]*len(df_filtered))],
                 hoverinfo='text',
                 name='Percurso'
             ))
@@ -365,13 +357,15 @@ if uploaded_file is not None:
                     row=1, col=1
                 )
                 fig.update_xaxes(title_text="Tempo (s)", row=1, col=1)
+                fig.update_yaxes(title_text=var_options[selected_var], row=1, col=1)
             
             if 'Velocity' in df_filtered.columns and 'HeartRate' in df_filtered.columns:
                 fig.add_trace(
                     go.Scatter(x=df_filtered['Velocity'], y=df_filtered['HeartRate'],
                               mode='markers', name='Dados',
                               marker=dict(size=5, color=df_filtered['Seconds'] if 'Seconds' in df_filtered.columns else 'blue', 
-                                        colorscale='Viridis', showscale=True)),
+                                        colorscale='Viridis', showscale=True,
+                                        colorbar=dict(title="Tempo (s)", x=1.02))),
                     row=1, col=2
                 )
                 fig.update_xaxes(title_text="Velocidade (km/h)", row=1, col=2)
@@ -386,6 +380,20 @@ if uploaded_file is not None:
                 )
                 fig.update_xaxes(title_text="Tempo (s)", row=2, col=1)
                 fig.update_yaxes(title_text="Distância (m)", row=2, col=1)
+            
+            if 'Velocity' in df_filtered.columns and 'Seconds' in df_filtered.columns:
+                segments = min(50, len(df_filtered))
+                if segments > 1:
+                    df_filtered['Segment'] = pd.cut(df_filtered['Seconds'], bins=segments, labels=False)
+                    heat_data = df_filtered.groupby('Segment')['Velocity'].mean().values.reshape(-1, 1)
+                    
+                    fig.add_trace(
+                        go.Heatmap(z=heat_data, 
+                                  colorscale='Viridis',
+                                  showscale=True,
+                                  colorbar=dict(title="Velocidade<br>média (km/h)")),
+                        row=2, col=2
+                    )
             
             fig.update_layout(height=700, showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
@@ -413,15 +421,19 @@ if uploaded_file is not None:
                                                             bins=10,
                                                             labels=[f'{i*10}-{(i+1)*10}%' for i in range(10)])
                     fig_box = px.box(df_filtered, x='Percentil_Tempo', y='Velocity',
-                                    title="Velocidade por Percentil do Tempo")
+                                    title="Velocidade por Percentil do Tempo",
+                                    labels={'Velocity': 'Velocidade (km/h)', 
+                                           'Percentil_Tempo': 'Percentil do Jogo'})
                     st.plotly_chart(fig_box, use_container_width=True)
             
             if 'Acceleration' in df_filtered.columns and 'Seconds' in df_filtered.columns:
                 st.subheader("Aceleração ao longo do tempo")
                 fig_acc = go.Figure()
                 fig_acc.add_trace(go.Scatter(x=df_filtered['Seconds'], y=df_filtered['Acceleration'],
-                                             mode='lines', line=dict(color='purple', width=1.5)))
-                fig_acc.add_hline(y=0, line_dash="dash", line_color="black", annotation_text="Repouso")
+                                             mode='lines', name='Aceleração',
+                                             line=dict(color='purple', width=1.5)))
+                fig_acc.add_hline(y=0, line_dash="dash", line_color="black", 
+                                 annotation_text="Repouso", annotation_position="top right")
                 fig_acc.update_layout(xaxis_title="Tempo (s)", yaxis_title="Aceleração (m/s²)", height=450)
                 st.plotly_chart(fig_acc, use_container_width=True)
         
@@ -446,13 +458,18 @@ if uploaded_file is not None:
                     if 'Seconds' in df_filtered.columns:
                         fig_hr_time = go.Figure()
                         fig_hr_time.add_trace(go.Scatter(x=df_filtered['Seconds'], y=df_filtered['HeartRate'],
-                                                         mode='lines', line=dict(color='red', width=2)))
+                                                         mode='lines', name='FC',
+                                                         line=dict(color='red', width=2)))
                         
                         fc_max = df_filtered['HeartRate'].max()
-                        fig_hr_time.add_hrect(y0=0, y1=fc_max*0.6, fillcolor="lightgreen", opacity=0.3)
-                        fig_hr_time.add_hrect(y0=fc_max*0.6, y1=fc_max*0.75, fillcolor="yellow", opacity=0.3)
-                        fig_hr_time.add_hrect(y0=fc_max*0.75, y1=fc_max*0.9, fillcolor="orange", opacity=0.3)
-                        fig_hr_time.add_hrect(y0=fc_max*0.9, y1=fc_max, fillcolor="red", opacity=0.3)
+                        fig_hr_time.add_hrect(y0=0, y1=fc_max*0.6, fillcolor="lightgreen", opacity=0.3,
+                                             annotation_text="Recuperação", annotation_position="top left")
+                        fig_hr_time.add_hrect(y0=fc_max*0.6, y1=fc_max*0.75, fillcolor="yellow", opacity=0.3,
+                                             annotation_text="Aeróbica", annotation_position="top left")
+                        fig_hr_time.add_hrect(y0=fc_max*0.75, y1=fc_max*0.9, fillcolor="orange", opacity=0.3,
+                                             annotation_text="Anaeróbica", annotation_position="top left")
+                        fig_hr_time.add_hrect(y0=fc_max*0.9, y1=fc_max, fillcolor="red", opacity=0.3,
+                                             annotation_text="Máximo", annotation_position="top left")
                         
                         fig_hr_time.update_layout(xaxis_title="Tempo (s)", yaxis_title="FC (bpm)", height=450)
                         st.plotly_chart(fig_hr_time, use_container_width=True)
@@ -472,13 +489,137 @@ if uploaded_file is not None:
                 zona_stats['% do Tempo'] = (zona_stats['Contagem'] / len(df_filtered) * 100).round(1).astype(str) + '%'
                 st.dataframe(zona_stats, use_container_width=True)
         
-        # ==================== TAB 5: ENTROPIA OTIMIZADA COM BOTÃO ====================
+        # ==================== TAB 5: ACELERAÇÃO VS VELOCIDADE COM QUADRANTES ====================
         with tab5:
-            st.subheader("📊 Análise de Entropia - Complexidade dos Dados")
+            st.subheader("🔄 Relação Aceleração vs Velocidade")
             st.markdown("""
-            A entropia mede a **complexidade e imprevisibilidade** dos dados. 
-            - **Maior entropia** = maior variabilidade e complexidade do movimento
-            - **Menor entropia** = padrões mais regulares e previsíveis
+            O gráfico abaixo mostra a relação entre **Aceleração (m/s²)** e **Velocidade (km/h)** para cada ponto de registro.
+            Os quadrantes ajudam a identificar os padrões de movimento do atleta.
+            """)
+            
+            if 'Acceleration' in df_filtered.columns and 'Velocity' in df_filtered.columns:
+                # Preparar dados
+                acc_data = df_filtered['Acceleration'].values
+                vel_data = df_filtered['Velocity'].values
+                
+                # Calcular médias para os quadrantes
+                mean_acc = np.mean(acc_data)
+                mean_vel = np.mean(vel_data)
+                
+                # Classificar quadrantes
+                quadrantes = []
+                for acc, vel in zip(acc_data, vel_data):
+                    if acc >= mean_acc and vel >= mean_vel:
+                        quadrantes.append('Q1 - Alta Vel + Alta Acel')
+                    elif acc >= mean_acc and vel < mean_vel:
+                        quadrantes.append('Q2 - Baixa Vel + Alta Acel')
+                    elif acc < mean_acc and vel < mean_vel:
+                        quadrantes.append('Q3 - Baixa Vel + Baixa Acel')
+                    else:
+                        quadrantes.append('Q4 - Alta Vel + Baixa Acel')
+                
+                df_filtered['Quadrante'] = quadrantes
+                
+                # Cores para cada quadrante
+                cores_quadrantes = {
+                    'Q1 - Alta Vel + Alta Acel': '#e74c3c',  # Vermelho
+                    'Q2 - Baixa Vel + Alta Acel': '#f39c12',  # Laranja
+                    'Q3 - Baixa Vel + Baixa Acel': '#2ecc71',  # Verde
+                    'Q4 - Alta Vel + Baixa Acel': '#3498db'    # Azul
+                }
+                
+                # Criar figura com scatter plot
+                fig_acc_vel = go.Figure()
+                
+                # Adicionar pontos por quadrante
+                for quadrante, cor in cores_quadrantes.items():
+                    mask = df_filtered['Quadrante'] == quadrante
+                    fig_acc_vel.add_trace(go.Scatter(
+                        x=df_filtered[mask]['Velocity'],
+                        y=df_filtered[mask]['Acceleration'],
+                        mode='markers',
+                        name=quadrante,
+                        marker=dict(
+                            size=8,
+                            color=cor,
+                            opacity=0.6,
+                            symbol='circle'
+                        ),
+                        text=[f"<b>Tempo:</b> {t:.1f}s<br><b>Vel:</b> {v:.1f} km/h<br><b>Acel:</b> {a:.2f} m/s²"
+                              for t, v, a in zip(df_filtered[mask]['Seconds'] if 'Seconds' in df_filtered.columns else range(len(df_filtered[mask])),
+                                                df_filtered[mask]['Velocity'],
+                                                df_filtered[mask]['Acceleration'])],
+                        hoverinfo='text'
+                    ))
+                
+                # Adicionar linhas das médias
+                fig_acc_vel.add_vline(x=mean_vel, line_dash="dash", line_color="gray", 
+                                     annotation_text=f"Média Vel: {mean_vel:.1f} km/h", 
+                                     annotation_position="top")
+                fig_acc_vel.add_hline(y=mean_acc, line_dash="dash", line_color="gray", 
+                                     annotation_text=f"Média Acel: {mean_acc:.2f} m/s²", 
+                                     annotation_position="right")
+                
+                # Configurar layout
+                fig_acc_vel.update_layout(
+                    title="Relação Aceleração vs Velocidade",
+                    xaxis_title="Velocidade (km/h)",
+                    yaxis_title="Aceleração (m/s²)",
+                    height=600,
+                    legend_title="Quadrantes",
+                    hovermode='closest'
+                )
+                
+                st.plotly_chart(fig_acc_vel, use_container_width=True)
+                
+                # Estatísticas por quadrante
+                st.markdown("### 📊 Estatísticas por Quadrante")
+                
+                quadrant_stats = df_filtered.groupby('Quadrante').agg({
+                    'Velocity': ['count', 'mean', 'min', 'max', 'std'],
+                    'Acceleration': ['mean', 'min', 'max', 'std']
+                }).round(2)
+                
+                quadrant_stats.columns = ['Contagem', 'Vel Média', 'Vel Mín', 'Vel Máx', 'Vel Std', 
+                                         'Acel Média', 'Acel Mín', 'Acel Máx', 'Acel Std']
+                quadrant_stats['% do Tempo'] = (quadrant_stats['Contagem'] / len(df_filtered) * 100).round(1).astype(str) + '%'
+                
+                st.dataframe(quadrant_stats, use_container_width=True)
+                
+                # Interpretação dos quadrantes
+                with st.expander("📖 Interpretação dos Quadrantes"):
+                    st.markdown("""
+                    | Quadrante | Significado | Interpretação no Esporte |
+                    |-----------|-------------|--------------------------|
+                    | **Q1 - Alta Vel + Alta Acel** | Alta velocidade com aceleração positiva | **Esforço máximo** - Sprints, arrancadas, mudanças de ritmo intensas |
+                    | **Q2 - Baixa Vel + Alta Acel** | Baixa velocidade com aceleração positiva | **Partidas e mudanças de direção** - Saídas de posição parada, giros rápidos |
+                    | **Q3 - Baixa Vel + Baixa Acel** | Baixa velocidade com desaceleração | **Recuperação** - Movimentos de baixa intensidade, pausas, andando |
+                    | **Q4 - Alta Vel + Baixa Acel** | Alta velocidade com desaceleração | **Frenagem e controle** - Desaceleração após sprint, mudanças defensivas |
+                    """)
+                
+                # Gráfico de distribuição por quadrante
+                st.markdown("### 🎯 Distribuição do Tempo por Quadrante")
+                
+                fig_pie = px.pie(
+                    quadrant_stats, 
+                    values='Contagem', 
+                    names=quadrant_stats.index,
+                    title="Proporção de Tempo em Cada Quadrante",
+                    color_discrete_sequence=['#e74c3c', '#f39c12', '#2ecc71', '#3498db']
+                )
+                fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+                st.plotly_chart(fig_pie, use_container_width=True)
+                
+            else:
+                st.warning("⚠️ Dados de aceleração ou velocidade não disponíveis para esta análise.")
+        
+        # ==================== TAB 6: ENTROPIA AMOSTRAL ====================
+        with tab6:
+            st.subheader("📊 Entropia Amostral - Regularidade dos Movimentos")
+            st.markdown("""
+            A **Entropia Amostral (Sample Entropy)** mede a **regularidade e previsibilidade** dos dados.
+            - **Maior entropia** = maior complexidade, movimentos variados e imprevisíveis
+            - **Menor entropia** = padrões mais regulares, repetitivos e previsíveis
             """)
             
             # Seleção da variável
@@ -512,41 +653,37 @@ if uploaded_file is not None:
                                          help="Mostra evolução temporal da entropia")
             
             # Botão para processar
-            process_button = st.button("🚀 Processar Análise de Entropia", type="primary", use_container_width=True)
+            process_button = st.button("🚀 Processar Análise de Entropia Amostral", type="primary", use_container_width=True)
             
             if process_button:
                 # Obter dados
                 data_series = df_filtered[selected_entropy_var].dropna().values
                 
                 if len(data_series) > 30:
-                    with st.spinner("Calculando entropia... Isso pode levar alguns segundos"):
-                        # Calcular entropias globais
-                        shannon_val = compute_entropy_fast(data_series, bins=30)
+                    with st.spinner("Calculando entropia amostral... Isso pode levar alguns segundos"):
+                        # Calcular entropia amostral global
                         sample_val = sample_entropy_fast(data_series, m=m_value, r=r_value)
                         cv_val = np.std(data_series) / np.mean(data_series) if np.mean(data_series) > 0 else 0
                     
                     # Mostrar métricas
-                    st.markdown("### 📈 Métricas de Entropia Global")
-                    col_a, col_b, col_c = st.columns(3)
+                    st.markdown("### 📈 Métrica de Entropia Amostral Global")
+                    col_a, col_b = st.columns(2)
                     
                     with col_a:
-                        st.metric("Entropia de Shannon", f"{shannon_val:.4f}", 
-                                 help="Mede a diversidade dos valores. Valores típicos: 2-5")
-                    with col_b:
                         st.metric("Entropia Amostral", f"{sample_val:.4f}" if not np.isnan(sample_val) else "N/A",
-                                 help="Mede a regularidade temporal")
-                    with col_c:
+                                 help="Mede a regularidade temporal. Valores baixos = padrões repetitivos")
+                    with col_b:
                         st.metric("Coeficiente de Variação", f"{cv_val:.3f}",
                                  help="Variabilidade relativa dos dados")
                     
                     # Classificação
                     st.markdown("**🏷️ Classificação da Complexidade:**")
-                    if shannon_val < 2.5:
-                        st.info("🔵 **Baixa complexidade** - Movimento padronizado e repetitivo")
-                    elif shannon_val < 4.0:
-                        st.success("🟢 **Média complexidade** - Variabilidade normal do esporte")
+                    if sample_val < 0.5:
+                        st.info("🔵 **Baixa entropia** - Movimento padronizado e repetitivo (alta regularidade)")
+                    elif sample_val < 1.2:
+                        st.success("🟢 **Média entropia** - Variabilidade normal do esporte")
                     else:
-                        st.warning("🟠 **Alta complexidade** - Grande variabilidade e imprevisibilidade")
+                        st.warning("🟠 **Alta entropia** - Grande variabilidade e imprevisibilidade (baixa regularidade)")
                     
                     # Série temporal
                     st.markdown("### 📉 Série Temporal")
@@ -576,13 +713,13 @@ if uploaded_file is not None:
                     if use_rolling and len(data_series) > 100:
                         with st.spinner("Calculando entropia por janela deslizante..."):
                             window_size = min(100, len(data_series) // 5)
-                            positions, rolling_ent = rolling_entropy_fast(data_series, 
-                                                                          window_size=window_size, 
-                                                                          step=window_size//3,
-                                                                          m=m_value, r=r_value)
+                            positions, rolling_ent = rolling_sample_entropy(data_series, 
+                                                                            window_size=window_size, 
+                                                                            step=window_size//3,
+                                                                            m=m_value, r=r_value)
                         
                         if len(rolling_ent) > 0:
-                            st.markdown("### 📊 Evolução da Entropia ao Longo do Tempo")
+                            st.markdown("### 📊 Evolução da Entropia Amostral ao Longo do Tempo")
                             
                             fig_rolling = go.Figure()
                             
@@ -611,7 +748,7 @@ if uploaded_file is not None:
                             if len(rolling_ent) > 3:
                                 trend = rolling_ent[-1] - rolling_ent[0]
                                 if trend > 0.1:
-                                    st.info("📈 **Tendência: Entropia aumentando** - Atleta está se movendo com maior variabilidade")
+                                    st.info("📈 **Tendência: Entropia aumentando** - Movimentos mais variáveis e imprevisíveis")
                                 elif trend < -0.1:
                                     st.warning("📉 **Tendência: Entropia diminuindo** - Possível fadiga ou padrões mais repetitivos")
                                 else:
@@ -626,37 +763,44 @@ if uploaded_file is not None:
                     st.plotly_chart(fig_hist_entropy, use_container_width=True)
                     
                     # Valores de referência
-                    with st.expander("📌 Valores de Referência para Entropia"):
+                    with st.expander("📌 Valores de Referência para Entropia Amostral"):
                         st.markdown("""
-                        | Categoria | Entropia Shannon | Entropia Amostral | Interpretação |
-                        |-----------|-----------------|------------------|---------------|
-                        | **Baixa** | < 2.5 | < 0.5 | Movimento repetitivo, padrões regulares |
-                        | **Média** | 2.5 - 4.0 | 0.5 - 1.2 | Variabilidade normal do esporte |
-                        | **Alta** | > 4.0 | > 1.2 | Alta complexidade, movimentos variados |
+                        | Categoria | Entropia Amostral | Interpretação |
+                        |-----------|------------------|---------------|
+                        | **Baixa** | < 0.5 | Movimento repetitivo, padrões regulares, baixa complexidade |
+                        | **Média** | 0.5 - 1.2 | Variabilidade normal do esporte, equilíbrio entre regularidade e variação |
+                        | **Alta** | > 1.2 | Alta complexidade, movimentos variados e imprevisíveis |
                         
                         **Aplicações no Esporte:**
-                        - Entropia baixa pode indicar **fadiga** ou movimentos muito padronizados
-                        - Entropia alta pode indicar **alta variabilidade** e adaptabilidade
-                        - Acompanhar a evolução pode ajudar a **prevenir lesões**
+                        - **Entropia baixa** pode indicar **fadiga** ou movimentos muito padronizados
+                        - **Entropia alta** pode indicar **alta variabilidade** e adaptabilidade
+                        - Acompanhar a evolução pode ajudar a **prevenir lesões** e **otimizar treinos**
+                        - Valores muito baixos podem indicar **movimentos robóticos** ou falta de criatividade tática
                         """)
                 
                 else:
                     st.warning(f"⚠️ Dados insuficientes para análise de entropia. São necessários pelo menos 30 pontos. Atualmente: {len(data_series)} pontos.")
             else:
                 # Estado inicial antes do botão
-                st.info("👆 **Clique no botão acima para iniciar a análise de entropia.**")
+                st.info("👆 **Clique no botão acima para iniciar a análise de entropia amostral.**")
                 st.markdown("""
-                ### 📝 Sobre a Análise de Entropia:
+                ### 📝 Sobre a Entropia Amostral (Sample Entropy):
                 
-                A análise de entropia avalia a **complexidade** dos movimentos do atleta:
+                A Entropia Amostral avalia a **regularidade** dos movimentos do atleta:
                 
-                - **Entropia de Shannon**: Mede a diversidade de valores na série temporal
-                - **Entropia Amostral**: Mede a regularidade dos padrões temporais
+                **Como funciona:**
+                - Compara sequências de dados para identificar padrões repetitivos
+                - Valores mais altos indicam maior complexidade e imprevisibilidade
+                - Valores mais baixos indicam movimentos mais regulares e previsíveis
+                
+                **Parâmetros:**
+                - **m (comprimento da sequência)**: 2 é o padrão para análise de movimento
+                - **r (tolerância)**: 0.2 do desvio padrão é o valor recomendado
                 
                 **Para melhores resultados:**
                 1. Selecione a variável que deseja analisar (Velocidade, FC, etc.)
                 2. Ajuste os parâmetros conforme necessário
-                3. Clique em "Processar Análise de Entropia"
+                3. Clique em "Processar Análise de Entropia Amostral"
                 4. Aguarde o processamento (alguns segundos)
                 
                 **Dica:** Quanto mais dados, mais precisa será a análise!
@@ -676,9 +820,12 @@ if uploaded_file is not None:
         st.markdown(f"**📊 Resumo da análise:** {len(df_filtered)} registros")
         if 'Seconds' in df_filtered.columns:
             st.markdown(f"**⏱️ Período:** {time_range[0]:.0f}s - {time_range[1]:.0f}s")
+        if 'Velocity' in df_filtered.columns:
+            st.markdown(f"**⚡ Filtro de velocidade:** {speed_range[0]:.1f} - {speed_range[1]:.1f} km/h")
     
     else:
         st.error("❌ Erro ao processar o arquivo. Verifique se o formato está correto.")
+        st.info("💡 Dica: O arquivo deve ser exportado pelo sistema OpenField no formato CSV.")
 
 else:
     # Tela inicial
@@ -697,3 +844,20 @@ else:
     """)
     
     st.info("ℹ️ Aguardando upload do arquivo...")
+    
+    with st.expander("🎯 Funcionalidades do Aplicativo"):
+        st.markdown("""
+        **Abas disponíveis:**
+        
+        1. **🗺️ Mapa do Percurso** - Visualização da trajetória do atleta no campo
+        2. **📈 Gráficos de Desempenho** - Análise de velocidade, FC e outras variáveis
+        3. **⚡ Velocidade e Aceleração** - Distribuição e evolução temporal
+        4. **❤️ Frequência Cardíaca** - Análise de zonas de intensidade
+        5. **🔄 Aceleração vs Velocidade** - Relação entre aceleração e velocidade com quadrantes
+        6. **📊 Entropia Amostral** - Análise da regularidade dos movimentos
+        
+        **Nova funcionalidade:**
+        - **Gráfico Aceleração vs Velocidade com quadrantes** - Identifica padrões de movimento
+        - Classificação automática em 4 quadrantes com base nas médias
+        - Estatísticas detalhadas por quadrante
+        """)
