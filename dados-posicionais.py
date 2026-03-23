@@ -6,6 +6,7 @@ from plotly.subplots import make_subplots
 import numpy as np
 from io import StringIO
 import warnings
+import re
 warnings.filterwarnings('ignore')
 
 # Configuração da página
@@ -83,27 +84,45 @@ def rolling_sample_entropy(data, window_size=50, step=10, m=2, r=0.2):
 
 # ==================== FUNÇÃO DE CARREGAMENTO DE DADOS CORRIGIDA ====================
 
+def extract_athlete_from_line8(content):
+    """Extrai o nome do atleta especificamente da linha 8 do arquivo"""
+    try:
+        lines = content.split('\n')
+        # Verifica se tem pelo menos 8 linhas
+        if len(lines) >= 8:
+            line8 = lines[7]  # linha 8 (índice 7, pois começa em 0)
+            # Busca o padrão # Athlete: "NOME"
+            if '# Athlete:' in line8:
+                # Procura por texto entre aspas
+                match = re.search(r'"([^"]*)"', line8)
+                if match:
+                    return match.group(1).strip()
+                # Se não encontrar aspas, tenta após os dois pontos
+                parts = line8.split(':')
+                if len(parts) > 1:
+                    nome = parts[1].split(';')[0].strip().strip('"')
+                    if nome:
+                        return nome
+        return None
+    except Exception as e:
+        return None
+
 @st.cache_data
 def load_data(uploaded_file):
-    """Carrega e processa os dados do arquivo CSV enviado com extração correta do nome do atleta"""
+    """Carrega e processa os dados do arquivo CSV enviado com extração correta do nome do atleta da linha 8"""
     try:
         content = uploaded_file.getvalue().decode('utf-8')
         
-        # Extrair nome do atleta da linha 8 (ou linha com '# Athlete:')
-        atleta = "Não identificado"
+        # Extrair nome do atleta especificamente da linha 8
+        atleta = extract_athlete_from_line8(content)
+        if atleta is None:
+            atleta = "Não identificado"
+        
+        # Extrair período (pode estar em qualquer linha)
         periodo = "Não identificado"
         lines = content.split('\n')
         
-        for i, line in enumerate(lines[:15]):
-            if '# Athlete:' in line:
-                # Busca o nome entre aspas
-                import re
-                match = re.search(r'"([^"]*)"', line)
-                if match:
-                    atleta = match.group(1).strip()
-                else:
-                    # Tentativa alternativa
-                    atleta = line.split(':')[1].strip().strip('"').strip(';')
+        for line in lines[:15]:
             if '# Period:' in line or '# Periodo:' in line:
                 try:
                     match = re.search(r'"([^"]*)"', line)
@@ -113,6 +132,7 @@ def load_data(uploaded_file):
                         periodo = line.split(':')[1].strip().strip('"').strip(';')
                 except:
                     periodo = "Não identificado"
+                break
         
         # Encontrar onde os dados começam (após os cabeçalhos)
         data_start = 0
@@ -172,130 +192,7 @@ def load_data(uploaded_file):
         st.error(f"Erro ao carregar arquivo {uploaded_file.name}: {e}")
         return None, None, None
 
-# ==================== FUNÇÃO PARA CRIAR MAPA DE CAMPO DE FUTEBOL ====================
-
-def create_soccer_field():
-    """Cria um layout de campo de futebol oficial para sobreposição no mapa"""
-    
-    # Coordenadas do campo (em metros, normalizadas)
-    field_length = 105  # comprimento em metros
-    field_width = 68     # largura em metros
-    
-    shapes = []
-    
-    # Perímetro do campo
-    shapes.append(go.layout.Shape(
-        type="rect",
-        x0=-field_length/2, x1=field_length/2,
-        y0=-field_width/2, y1=field_width/2,
-        line=dict(color="white", width=2),
-        fillcolor="rgba(34, 139, 34, 0.2)",
-        layer="below"
-    ))
-    
-    # Linha do meio de campo
-    shapes.append(go.layout.Shape(
-        type="line",
-        x0=0, x1=0,
-        y0=-field_width/2, y1=field_width/2,
-        line=dict(color="white", width=2)
-    ))
-    
-    # Círculo central
-    theta = np.linspace(0, 2*np.pi, 100)
-    circle_x = 9.15 * np.cos(theta)
-    circle_y = 9.15 * np.sin(theta)
-    
-    shapes.append(go.layout.Shape(
-        type="circle",
-        x0=-9.15, x1=9.15,
-        y0=-9.15, y1=9.15,
-        line=dict(color="white", width=2),
-        fillcolor="rgba(0,0,0,0)"
-    ))
-    
-    # Ponto central
-    shapes.append(go.layout.Shape(
-        type="circle",
-        x0=-0.3, x1=0.3,
-        y0=-0.3, y1=0.3,
-        fillcolor="white",
-        line=dict(color="white", width=0)
-    ))
-    
-    # Grandes áreas (esquerda e direita)
-    shapes.append(go.layout.Shape(
-        type="rect",
-        x0=-field_length/2, x1=-field_length/2 + 16.5,
-        y0=-20.15, y1=20.15,
-        line=dict(color="white", width=2),
-        fillcolor="rgba(0,0,0,0)"
-    ))
-    
-    shapes.append(go.layout.Shape(
-        type="rect",
-        x0=field_length/2 - 16.5, x1=field_length/2,
-        y0=-20.15, y1=20.15,
-        line=dict(color="white", width=2),
-        fillcolor="rgba(0,0,0,0)"
-    ))
-    
-    # Pequenas áreas (esquerda e direita)
-    shapes.append(go.layout.Shape(
-        type="rect",
-        x0=-field_length/2, x1=-field_length/2 + 5.5,
-        y0=-9.15, y1=9.15,
-        line=dict(color="white", width=2),
-        fillcolor="rgba(0,0,0,0)"
-    ))
-    
-    shapes.append(go.layout.Shape(
-        type="rect",
-        x0=field_length/2 - 5.5, x1=field_length/2,
-        y0=-9.15, y1=9.15,
-        line=dict(color="white", width=2),
-        fillcolor="rgba(0,0,0,0)"
-    ))
-    
-    # Marcas de pênalti
-    shapes.append(go.layout.Shape(
-        type="circle",
-        x0=-field_length/2 + 11 - 0.3, x1=-field_length/2 + 11 + 0.3,
-        y0=-0.3, y1=0.3,
-        fillcolor="white",
-        line=dict(color="white", width=0)
-    ))
-    
-    shapes.append(go.layout.Shape(
-        type="circle",
-        x0=field_length/2 - 11 - 0.3, x1=field_length/2 - 11 + 0.3,
-        y0=-0.3, y1=0.3,
-        fillcolor="white",
-        line=dict(color="white", width=0)
-    ))
-    
-    # Arcos das áreas
-    theta_arc = np.linspace(-np.pi/2, np.pi/2, 50)
-    arc_x_left = -field_length/2 + 16.5 + 9.15 * np.cos(theta_arc)
-    arc_y_left = 9.15 * np.sin(theta_arc)
-    
-    shapes.append(go.layout.Shape(
-        type="path",
-        path=f"M {-field_length/2 + 16.5} 0 A 9.15 9.15 0 0 1 {-field_length/2 + 16.5 - 9.15} 0",
-        line=dict(color="white", width=2),
-        fillcolor="rgba(0,0,0,0)"
-    ))
-    
-    shapes.append(go.layout.Shape(
-        type="path",
-        path=f"M {field_length/2 - 16.5} 0 A 9.15 9.15 0 0 0 {field_length/2 - 16.5 + 9.15} 0",
-        line=dict(color="white", width=2),
-        fillcolor="rgba(0,0,0,0)"
-    ))
-    
-    return shapes
-
-# ==================== FUNÇÃO PARA NORMALIZAR COORDENADAS DO MAPA ====================
+# ==================== FUNÇÃO PARA NORMALIZAR COORDENADAS ====================
 
 def normalize_coordinates(lat, lon, center_lat=None, center_lon=None):
     """Normaliza coordenadas para o sistema de coordenadas do campo de futebol"""
@@ -338,8 +235,8 @@ with st.sidebar.expander("📋 Exemplo de formato esperado"):
     - **Longitude**: Coordenada de longitude
     - **HeartRate**: Frequência cardíaca (bpm)
     
-    **Nome do atleta** é extraído da linha:
-    `# Athlete: "L.SASHA";;;;;;;;;;;`
+    **Nome do atleta** é extraído da linha 8:
+    `# Athlete: "L.GAZAL";;;;;;;;;;;`
     """)
 
 # ==================== PROCESSAMENTO PRINCIPAL ====================
@@ -370,13 +267,14 @@ if uploaded_files:
         # Criar lista de opções para seleção múltipla
         atleta_options = []
         for atleta, periodo, arquivo in zip(all_atletas, all_periodos, [f.name for f in uploaded_files]):
-            atleta_options.append(f"{atleta} - {periodo}")
+            display_name = f"{atleta} - {periodo}" if periodo != "Não identificado" else atleta
+            atleta_options.append(display_name)
         
         selected_atletas_indices = st.sidebar.multiselect(
             "Escolha os atletas para análise",
             options=range(len(atleta_options)),
             format_func=lambda x: atleta_options[x],
-            default=[0]
+            default=[0] if len(atleta_options) > 0 else []
         )
         
         # Determinar atletas selecionados
@@ -564,34 +462,17 @@ if uploaded_files:
             fig_map = go.Figure()
             
             # Adicionar campo de futebol como shapes (se selecionado)
-            if show_field and len(df_mapa_filtrado) > 0:
-                # Normalizar coordenadas para o campo
-                lat_m, lon_m = normalize_coordinates(df_mapa_filtrado['Latitude'].values, 
-                                                      df_mapa_filtrado['Longitude'].values,
-                                                      center_lat, center_lon)
-                
-                # Calcular escala para o campo
-                lat_range = lat_m.max() - lat_m.min()
-                lon_range = lon_m.max() - lon_m.min()
-                max_range = max(lat_range, lon_range)
-                
-                # Escalar o campo para caber nos dados
-                if max_range > 0:
-                    scale = 105 / max_range  # Campo tem 105m de comprimento
-                else:
-                    scale = 1
-                
+            if show_field:
                 # Adicionar shapes do campo
-                field_shapes = create_soccer_field()
-                for shape in field_shapes:
-                    # Escalar e deslocar o shape
-                    if hasattr(shape, 'x0') and shape.x0 is not None:
-                        shape.x0 = shape.x0 / scale
-                        shape.x1 = shape.x1 / scale
-                    if hasattr(shape, 'y0') and shape.y0 is not None:
-                        shape.y0 = shape.y0 / scale
-                        shape.y1 = shape.y1 / scale
-                    fig_map.add_shape(shape)
+                # Perímetro do campo
+                fig_map.add_shape(
+                    type="rect",
+                    x0=center_lon - 0.0005, x1=center_lon + 0.0005,
+                    y0=center_lat - 0.0003, y1=center_lat + 0.0003,
+                    line=dict(color="white", width=2),
+                    fillcolor="rgba(34, 139, 34, 0.2)",
+                    layer="below"
+                )
             
             # Adicionar trilha do percurso
             if len(df_mapa_filtrado) > 1:
@@ -634,11 +515,10 @@ if uploaded_files:
                             cmin=df_mapa_filtrado['Velocity'].min(),
                             cmax=df_mapa_filtrado['Velocity'].max()
                         ),
-                        text=[f"<b>Tempo:</b> {t:.1f}s<br><b>Velocidade:</b> {v:.1f} km/h<br><b>FC:</b> {h:.0f} bpm<br><b>Distância:</b> {d:.0f} m" 
-                              for t, v, h, d in zip(df_mapa_filtrado['Seconds'], 
-                                                    df_mapa_filtrado['Velocity'],
-                                                    df_mapa_filtrado['HeartRate'],
-                                                    df_mapa_filtrado['Odometer'])],
+                        text=[f"<b>Tempo:</b> {t:.1f}s<br><b>Velocidade:</b> {v:.1f} km/h<br><b>FC:</b> {h:.0f} bpm" 
+                              for t, v, h in zip(df_mapa_filtrado['Seconds'], 
+                                                df_mapa_filtrado['Velocity'],
+                                                df_mapa_filtrado['HeartRate'])],
                         hoverinfo='text',
                         name='Posições'
                     ))
@@ -722,8 +602,10 @@ if uploaded_files:
                 )
                 idx_temporal = selected_atletas.index(atleta_temporal)
                 df_temporal = dfs_filtered[idx_temporal].copy()
+                atleta_temporal_nome = atleta_temporal
             else:
                 df_temporal = df_main.copy()
+                atleta_temporal_nome = atleta_main
             
             # Criar gráfico com sobreposição de velocidade e frequência cardíaca
             fig_temporal = make_subplots(specs=[[{"secondary_y": True}]])
@@ -799,7 +681,7 @@ if uploaded_files:
             
             # Configurar layout
             fig_temporal.update_layout(
-                title=f"Velocidade e Frequência Cardíaca - {atleta_temporal}",
+                title=f"Velocidade e Frequência Cardíaca - {atleta_temporal_nome}",
                 xaxis_title="Tempo (segundos)",
                 height=500,
                 hovermode='x unified',
