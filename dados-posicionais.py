@@ -7,6 +7,7 @@ import numpy as np
 from io import StringIO
 import warnings
 import re
+from datetime import datetime, timedelta
 warnings.filterwarnings('ignore')
 
 # Configuração da página
@@ -81,6 +82,27 @@ def rolling_sample_entropy(data, window_size=50, step=10, m=2, r=0.2):
                 positions.append(i + window_size // 2)
     
     return np.array(positions), np.array(entropies)
+
+# ==================== FUNÇÃO DE CONVERSÃO DE SEGUNDOS PARA HORÁRIO ====================
+
+def seconds_to_time_str(seconds, start_datetime):
+    """Converte segundos desde o início para horário HH:MM:SS"""
+    if start_datetime is None:
+        return f"{int(seconds // 3600):02d}:{int((seconds % 3600) // 60):02d}:{int(seconds % 60):02d}"
+    target_time = start_datetime + timedelta(seconds=seconds)
+    return target_time.strftime("%H:%M:%S")
+
+def time_str_to_seconds(time_str, start_datetime):
+    """Converte horário HH:MM:SS para segundos desde o início"""
+    try:
+        target_time = datetime.strptime(time_str, "%H:%M:%S")
+        start_time = start_datetime.time()
+        # Cria um datetime combinando a data de início com o horário alvo
+        target_full = datetime.combine(start_datetime.date(), target_time.time())
+        seconds = (target_full - start_datetime).total_seconds()
+        return max(0, seconds)
+    except:
+        return 0
 
 # ==================== FUNÇÃO DE CARREGAMENTO DE DADOS CORRIGIDA ====================
 
@@ -167,6 +189,7 @@ def load_data(uploaded_file):
                 df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '.'), errors='coerce')
         
         # Tratamento flexível para o Timestamp
+        start_datetime = None
         if 'Timestamp' in df.columns:
             df['Timestamp'] = df['Timestamp'].astype(str).str.strip()
             
@@ -180,32 +203,32 @@ def load_data(uploaded_file):
                         df['Timestamp'] = pd.to_datetime(df['Timestamp'], dayfirst=True, errors='coerce')
                     except:
                         df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
+            
+            # Obter o timestamp inicial
+            start_datetime = df['Timestamp'].min() if not df['Timestamp'].isna().all() else None
         
         # Remover linhas com dados essenciais faltando
         df = df.dropna(subset=['Latitude', 'Longitude', 'Velocity', 'HeartRate'])
         
-        # Adicionar coluna de arquivo origem
+        # Adicionar coluna de arquivo origem e timestamp inicial
         df['arquivo_origem'] = uploaded_file.name
+        df['start_datetime'] = start_datetime
         
-        return df, atleta, periodo
+        return df, atleta, periodo, start_datetime
     except Exception as e:
         st.error(f"Erro ao carregar arquivo {uploaded_file.name}: {e}")
-        return None, None, None
+        return None, None, None, None
 
-# ==================== FUNÇÃO PARA NORMALIZAR COORDENADAS ====================
+# ==================== FUNÇÃO PARA FORMATAR HORÁRIO ====================
 
-def normalize_coordinates(lat, lon, center_lat=None, center_lon=None):
-    """Normaliza coordenadas para o sistema de coordenadas do campo de futebol"""
-    if center_lat is None:
-        center_lat = np.mean(lat)
-    if center_lon is None:
-        center_lon = np.mean(lon)
+def format_time_range(start_seconds, end_seconds, start_datetime):
+    """Formata o intervalo de tempo em horários HH:MM:SS"""
+    if start_datetime is None:
+        return f"{int(start_seconds // 3600):02d}:{int((start_seconds % 3600) // 60):02d}:{int(start_seconds % 60):02d} - {int(end_seconds // 3600):02d}:{int((end_seconds % 3600) // 60):02d}:{int(end_seconds % 60):02d}"
     
-    # Converter diferenças de latitude/longitude para metros
-    lat_m = (lat - center_lat) * 111111
-    lon_m = (lon - center_lon) * 111111 * 0.92
-    
-    return lat_m, lon_m
+    start_time = start_datetime + timedelta(seconds=start_seconds)
+    end_time = start_datetime + timedelta(seconds=end_seconds)
+    return f"{start_time.strftime('%H:%M:%S')} - {end_time.strftime('%H:%M:%S')}"
 
 # ==================== SIDEBAR ====================
 
@@ -248,15 +271,17 @@ if uploaded_files:
     all_data = []
     all_atletas = []
     all_periodos = []
+    all_start_datetimes = []
     
     progress_bar = st.sidebar.progress(0)
     for idx, file in enumerate(uploaded_files):
         st.sidebar.info(f"📊 Processando: {file.name}")
-        df, atleta, periodo = load_data(file)
+        df, atleta, periodo, start_datetime = load_data(file)
         if df is not None and len(df) > 0:
             all_data.append(df)
             all_atletas.append(atleta)
             all_periodos.append(periodo)
+            all_start_datetimes.append(start_datetime)
         progress_bar.progress((idx + 1) / len(uploaded_files))
     
     if all_data:
@@ -282,8 +307,12 @@ if uploaded_files:
         selected_atletas = [all_atletas[i] for i in selected_indices]
         selected_data = [all_data[i] for i in selected_indices]
         selected_periodos = [all_periodos[i] for i in selected_indices]
+        selected_start_datetimes = [all_start_datetimes[i] for i in selected_indices]
         
-        # Filtro de tempo global (para todos os atletas)
+        # Usar o timestamp do primeiro atleta como referência
+        reference_datetime = selected_start_datetimes[0] if selected_start_datetimes[0] is not None else None
+        
+        # Filtro de tempo global na sidebar (em horário HH:MM:SS)
         st.sidebar.markdown("---")
         st.sidebar.subheader("⏱️ Filtro Temporal Global")
         
@@ -293,20 +322,49 @@ if uploaded_files:
             if 'Seconds' in df.columns and df['Seconds'].max() > max_time_global:
                 max_time_global = df['Seconds'].max()
         
-        if max_time_global > 0:
-            # Slider duplo para seleção de início e fim
-            time_range = st.sidebar.slider(
-                "Selecione o intervalo de tempo (segundos)",
-                min_value=0.0,
-                max_value=float(max_time_global),
-                value=(0.0, float(max_time_global)),
-                step=5.0,
-                key="time_range_global"
-            )
-            start_time_global, end_time_global = time_range
+        if max_time_global > 0 and reference_datetime is not None:
+            # Criar opções de horário para o slider
+            start_time_default = reference_datetime
+            end_time_default = reference_datetime + timedelta(seconds=max_time_global)
+            
+            # Usar dois seletores de horário (início e fim)
+            col_time1, col_time2 = st.sidebar.columns(2)
+            
+            with col_time1:
+                start_time_str = st.time_input(
+                    "Horário de início",
+                    value=start_time_default.time(),
+                    key="start_time_global"
+                )
+            
+            with col_time2:
+                end_time_str = st.time_input(
+                    "Horário de fim",
+                    value=end_time_default.time(),
+                    key="end_time_global"
+                )
+            
+            # Converter horários para segundos desde o início
+            start_datetime_global = datetime.combine(reference_datetime.date(), start_time_str)
+            end_datetime_global = datetime.combine(reference_datetime.date(), end_time_str)
+            
+            start_time_global = max(0, (start_datetime_global - reference_datetime).total_seconds())
+            end_time_global = min(max_time_global, (end_datetime_global - reference_datetime).total_seconds())
+            
+            # Garantir que start < end
+            if start_time_global >= end_time_global:
+                st.sidebar.warning("⚠️ Horário de início deve ser anterior ao horário de fim")
+                end_time_global = start_time_global + 1
+            
+            # Exibir o intervalo selecionado
+            st.sidebar.info(f"📅 Intervalo: {start_time_str.strftime('%H:%M:%S')} - {end_time_str.strftime('%H:%M:%S')}")
+            st.sidebar.info(f"⏱️ Duração: {int(end_time_global - start_time_global)} segundos")
+            
         else:
-            start_time_global = 0
-            end_time_global = max_time_global
+            # Fallback para segundos se não houver timestamp
+            start_time_global = 0.0
+            end_time_global = float(max_time_global) if max_time_global > 0 else 100
+            st.sidebar.info(f"⏱️ Intervalo: {start_time_global:.0f}s - {end_time_global:.0f}s")
         
         # Filtro de velocidade
         st.sidebar.markdown("---")
@@ -342,15 +400,16 @@ if uploaded_files:
         )
         show_heatmap = st.sidebar.checkbox("🌡️ Mostrar mapa de calor de velocidade", value=False)
         
-        # Processar dados de cada atleta selecionado
+        # Processar dados de cada atleta selecionado (aplicando filtros globais)
         dfs_filtered = []
-        for df, atleta, periodo in zip(selected_data, selected_atletas, selected_periodos):
-            # Aplicar filtros
+        for df, atleta, periodo, start_dt in zip(selected_data, selected_atletas, selected_periodos, selected_start_datetimes):
+            # Aplicar filtros de tempo e velocidade
             time_filter = (df['Seconds'] >= start_time_global) & (df['Seconds'] <= end_time_global)
             speed_filter = (df['Velocity'] >= speed_range[0]) & (df['Velocity'] <= speed_range[1])
             df_filtered = df[time_filter & speed_filter].copy()
             df_filtered['Atleta'] = atleta
             df_filtered['Periodo'] = periodo
+            df_filtered['start_datetime'] = start_dt
             dfs_filtered.append(df_filtered)
         
         # Combinar dados filtrados para análises
@@ -363,16 +422,28 @@ if uploaded_files:
             st.warning("⚠️ Nenhum dado encontrado com os filtros selecionados.")
             st.stop()
         
-        # Exibir atletas selecionados
+        # Exibir atletas selecionados e filtros aplicados
         st.sidebar.markdown("---")
         st.sidebar.subheader("🏅 Atletas em Análise")
         for atleta, periodo in zip(selected_atletas, selected_periodos):
             st.sidebar.write(f"**{atleta}** - {periodo}")
         
+        # Exibir resumo dos filtros no corpo principal
+        st.markdown("### 📊 Filtros Aplicados")
+        col_f1, col_f2, col_f3 = st.columns(3)
+        with col_f1:
+            st.info(f"**⏱️ Intervalo de tempo:** {format_time_range(start_time_global, end_time_global, reference_datetime)}")
+        with col_f2:
+            st.info(f"**⚡ Filtro de velocidade:** {speed_range[0]:.1f} - {speed_range[1]:.1f} km/h")
+        with col_f3:
+            total_registros = sum(len(df) for df in dfs_filtered)
+            st.info(f"**📊 Total de registros:** {total_registros:,}")
+        
         # Métricas principais (para o primeiro atleta selecionado)
         df_main = dfs_filtered[0]
         atleta_main = selected_atletas[0]
         periodo_main = selected_periodos[0]
+        start_dt_main = selected_start_datetimes[0]
         
         st.markdown("### 📈 Métricas de Desempenho")
         col1, col2, col3, col4, col5 = st.columns(5)
@@ -403,7 +474,7 @@ if uploaded_files:
             "📊 Entropia Amostral"
         ])
         
-        # ==================== TAB 1: MAPA COM CAMPO DE FUTEBOL E MARCADORES TEMPORAIS ====================
+        # ==================== TAB 1: MAPA COM CAMPO DE FUTEBOL ====================
         with tab1:
             st.subheader("Percurso do Atleta no Campo de Futebol")
             
@@ -419,40 +490,17 @@ if uploaded_files:
                 df_mapa = dfs_filtered[idx_mapa].copy()
                 atleta_mapa_nome = atleta_mapa
                 periodo_mapa = selected_periodos[idx_mapa]
+                start_dt_mapa = selected_start_datetimes[idx_mapa]
             else:
                 df_mapa = df_main.copy()
                 atleta_mapa_nome = atleta_main
                 periodo_mapa = periodo_main
+                start_dt_mapa = start_dt_main
             
-            # Slider temporal para filtrar o mapa com marcadores de início e fim
-            st.markdown("### ⏱️ Filtro Temporal para o Mapa")
-            col_tempo1, col_tempo2, col_tempo3 = st.columns([3, 1, 1])
+            # Já temos o filtro global aplicado, então usamos os dados filtrados
+            df_mapa_filtrado = df_mapa.copy()
             
-            with col_tempo1:
-                max_tempo_mapa = df_mapa['Seconds'].max() if 'Seconds' in df_mapa.columns else 100
-                
-                # Slider duplo para selecionar início e fim do trajeto
-                tempo_range_mapa = st.slider(
-                    "Selecione o intervalo de tempo para visualizar o percurso",
-                    min_value=0.0,
-                    max_value=float(max_tempo_mapa),
-                    value=(0.0, float(max_tempo_mapa)),
-                    step=5.0,
-                    key="tempo_range_mapa",
-                    help="Arraste os marcadores para selecionar o início e o fim do trajeto a ser exibido"
-                )
-                tempo_inicio, tempo_fim = tempo_range_mapa
-                
-                # Filtrar dados para o mapa
-                df_mapa_filtrado = df_mapa[(df_mapa['Seconds'] >= tempo_inicio) & 
-                                            (df_mapa['Seconds'] <= tempo_fim)].copy()
-            
-            with col_tempo2:
-                st.metric("Início", f"{tempo_inicio:.0f} s")
-            with col_tempo3:
-                st.metric("Fim", f"{tempo_fim:.0f} s")
-            
-            st.info(f"📊 Mostrando percurso de {atleta_mapa_nome} entre {tempo_inicio:.0f}s e {tempo_fim:.0f}s | {len(df_mapa_filtrado)} pontos")
+            st.info(f"📊 Mostrando percurso de {atleta_mapa_nome} no intervalo {format_time_range(start_time_global, end_time_global, reference_datetime)} | {len(df_mapa_filtrado)} pontos")
             
             # Calcular centro do mapa
             center_lat = df_mapa_filtrado['Latitude'].mean() if len(df_mapa_filtrado) > 0 else -23.5505
@@ -464,7 +512,6 @@ if uploaded_files:
             # Adicionar campo de futebol como shapes (se selecionado)
             if show_field:
                 # Adicionar shapes do campo
-                # Perímetro do campo
                 fig_map.add_shape(
                     type="rect",
                     x0=center_lon - 0.0005, x1=center_lon + 0.0005,
@@ -476,18 +523,6 @@ if uploaded_files:
             
             # Adicionar trilha do percurso
             if len(df_mapa_filtrado) > 1:
-                # Criar gradiente de tempo para colorir a linha
-                times_normalized = (df_mapa_filtrado['Seconds'] - tempo_inicio) / (tempo_fim - tempo_inicio) if tempo_fim > tempo_inicio else np.zeros(len(df_mapa_filtrado))
-                
-                fig_map.add_trace(go.Scattermapbox(
-                    lat=df_mapa_filtrado['Latitude'],
-                    lon=df_mapa_filtrado['Longitude'],
-                    mode='lines',
-                    line=dict(width=4, color='red'),
-                    name='Percurso',
-                    showlegend=False
-                ))
-                
                 if show_heatmap:
                     # Mapa de calor de velocidade
                     fig_map.add_trace(go.Densitymapbox(
@@ -502,6 +537,12 @@ if uploaded_files:
                     ))
                 else:
                     # Pontos coloridos por velocidade
+                    # Criar texto com horário formatado
+                    hover_texts = []
+                    for _, row in df_mapa_filtrado.iterrows():
+                        time_str = seconds_to_time_str(row['Seconds'], start_dt_mapa)
+                        hover_texts.append(f"<b>Tempo:</b> {time_str}<br><b>Velocidade:</b> {row['Velocity']:.1f} km/h<br><b>FC:</b> {row['HeartRate']:.0f} bpm")
+                    
                     fig_map.add_trace(go.Scattermapbox(
                         lat=df_mapa_filtrado['Latitude'],
                         lon=df_mapa_filtrado['Longitude'],
@@ -515,22 +556,22 @@ if uploaded_files:
                             cmin=df_mapa_filtrado['Velocity'].min(),
                             cmax=df_mapa_filtrado['Velocity'].max()
                         ),
-                        text=[f"<b>Tempo:</b> {t:.1f}s<br><b>Velocidade:</b> {v:.1f} km/h<br><b>FC:</b> {h:.0f} bpm" 
-                              for t, v, h in zip(df_mapa_filtrado['Seconds'], 
-                                                df_mapa_filtrado['Velocity'],
-                                                df_mapa_filtrado['HeartRate'])],
+                        text=hover_texts,
                         hoverinfo='text',
                         name='Posições'
                     ))
             
             # Adicionar marcadores de início e fim
             if len(df_mapa_filtrado) > 0:
+                start_time_str = seconds_to_time_str(start_time_global, start_dt_mapa)
+                end_time_str = seconds_to_time_str(end_time_global, start_dt_mapa)
+                
                 fig_map.add_trace(go.Scattermapbox(
                     lat=[df_mapa_filtrado['Latitude'].iloc[0]],
                     lon=[df_mapa_filtrado['Longitude'].iloc[0]],
                     mode='markers',
                     marker=dict(size=16, color='green', symbol='circle'),
-                    text=[f"🏁 INÍCIO<br>Tempo: {tempo_inicio:.0f}s<br>Vel: {df_mapa_filtrado['Velocity'].iloc[0]:.1f} km/h"],
+                    text=[f"🏁 INÍCIO<br>Horário: {start_time_str}<br>Vel: {df_mapa_filtrado['Velocity'].iloc[0]:.1f} km/h"],
                     hoverinfo='text',
                     name='Início'
                 ))
@@ -540,7 +581,7 @@ if uploaded_files:
                     lon=[df_mapa_filtrado['Longitude'].iloc[-1]],
                     mode='markers',
                     marker=dict(size=16, color='red', symbol='circle'),
-                    text=[f"🏁 FIM<br>Tempo: {tempo_fim:.0f}s<br>Vel: {df_mapa_filtrado['Velocity'].iloc[-1]:.1f} km/h"],
+                    text=[f"🏁 FIM<br>Horário: {end_time_str}<br>Vel: {df_mapa_filtrado['Velocity'].iloc[-1]:.1f} km/h"],
                     hoverinfo='text',
                     name='Fim'
                 ))
@@ -566,7 +607,7 @@ if uploaded_files:
                 margin=dict(l=0, r=0, t=30, b=0),
                 height=700,
                 title={
-                    'text': f"Trajetória de {atleta_mapa_nome} - {periodo_mapa} | Intervalo: {tempo_inicio:.0f}s - {tempo_fim:.0f}s",
+                    'text': f"Trajetória de {atleta_mapa_nome} - {periodo_mapa} | {format_time_range(start_time_global, end_time_global, reference_datetime)}",
                     'x': 0.5,
                     'xanchor': 'center'
                 },
@@ -603,9 +644,16 @@ if uploaded_files:
                 idx_temporal = selected_atletas.index(atleta_temporal)
                 df_temporal = dfs_filtered[idx_temporal].copy()
                 atleta_temporal_nome = atleta_temporal
+                start_dt_temporal = selected_start_datetimes[idx_temporal]
             else:
                 df_temporal = df_main.copy()
                 atleta_temporal_nome = atleta_main
+                start_dt_temporal = start_dt_main
+            
+            # Criar coluna de tempo formatado para o eixo X
+            df_temporal['Tempo_Horario'] = df_temporal['Seconds'].apply(
+                lambda x: seconds_to_time_str(x, start_dt_temporal)
+            )
             
             # Criar gráfico com sobreposição de velocidade e frequência cardíaca
             fig_temporal = make_subplots(specs=[[{"secondary_y": True}]])
@@ -693,6 +741,44 @@ if uploaded_files:
             
             st.plotly_chart(fig_temporal, use_container_width=True)
             
+            # Gráfico com horário no eixo X
+            st.markdown("### 📅 Visualização por Horário")
+            
+            fig_time = make_subplots(specs=[[{"secondary_y": True}]])
+            
+            fig_time.add_trace(
+                go.Scatter(
+                    x=df_temporal['Tempo_Horario'],
+                    y=df_temporal['Velocity'],
+                    mode='lines',
+                    name='Velocidade',
+                    line=dict(color='#3498db', width=2)
+                ),
+                secondary_y=False
+            )
+            
+            fig_time.add_trace(
+                go.Scatter(
+                    x=df_temporal['Tempo_Horario'],
+                    y=df_temporal['HeartRate'],
+                    mode='lines',
+                    name='Frequência Cardíaca',
+                    line=dict(color='#e74c3c', width=2)
+                ),
+                secondary_y=True
+            )
+            
+            fig_time.update_layout(
+                title=f"Velocidade e Frequência Cardíaca - {atleta_temporal_nome} (por Horário)",
+                xaxis_title="Horário",
+                height=450,
+                hovermode='x unified'
+            )
+            fig_time.update_yaxes(title_text="Velocidade (km/h)", secondary_y=False, color="#3498db")
+            fig_time.update_yaxes(title_text="Frequência Cardíaca (bpm)", secondary_y=True, color="#e74c3c")
+            
+            st.plotly_chart(fig_time, use_container_width=True)
+            
             # Adicionar gráfico de dispersão Velocidade vs FC
             st.markdown("### 🎯 Relação Velocidade vs Frequência Cardíaca")
             
@@ -713,7 +799,7 @@ if uploaded_files:
                 st.markdown("### 👥 Comparação entre Atletas")
                 
                 fig_comp = go.Figure()
-                for df, atleta in zip(dfs_filtered, selected_atletas):
+                for df, atleta, start_dt in zip(dfs_filtered, selected_atletas, selected_start_datetimes):
                     fig_comp.add_trace(go.Scatter(
                         x=df['Seconds'],
                         y=df['Velocity'],
@@ -1136,7 +1222,7 @@ if uploaded_files:
         
         st.markdown("---")
         st.markdown(f"**📊 Resumo da análise:** {len(df_combined)} registros | **Atletas:** {', '.join(selected_atletas)}")
-        st.markdown(f"**⏱️ Período:** {start_time_global:.0f}s - {end_time_global:.0f}s")
+        st.markdown(f"**⏱️ Período:** {format_time_range(start_time_global, end_time_global, reference_datetime)}")
         st.markdown(f"**⚡ Filtro de velocidade:** {speed_range[0]:.1f} - {speed_range[1]:.1f} km/h")
     
     else:
@@ -1153,13 +1239,13 @@ else:
     1. **Faça upload** de um ou mais arquivos CSV na barra lateral esquerda
     2. Aguarde o processamento automático
     3. Selecione **um ou mais atletas** no menu
-    4. Ajuste os **marcadores de tempo** para selecionar o intervalo desejado
+    4. Ajuste os **horários de início e fim** para selecionar o intervalo desejado
     5. Explore as visualizações nas abas
     
     ### ✨ Novas funcionalidades:
     - **Múltiplos arquivos**: Carregue dados de vários atletas simultaneamente
     - **Seleção múltipla de atletas**: Analise um ou mais atletas ao mesmo tempo
-    - **Marcadores de tempo inicial e final**: Arraste para selecionar o intervalo exato
+    - **Filtro temporal por horário**: Selecione o intervalo usando horários HH:MM:SS
     - **Campo de futebol**: Visualização com dimensões oficiais do campo
     - **Sobreposição de gráficos**: Velocidade e FC no mesmo gráfico
     
