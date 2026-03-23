@@ -45,7 +45,6 @@ def sample_entropy_fast(data, m=2, r=0.2):
         total = 0
         for i in range(N - m):
             template = data[i:i+m]
-            # Calcular distâncias máximas de forma vetorizada
             for j in range(i + 1, N - m + 1):
                 diff = np.abs(template - data[j:j+m])
                 if np.max(diff) <= r:
@@ -70,7 +69,6 @@ def rolling_sample_entropy(data, window_size=50, step=10, m=2, r=0.2):
     entropies = []
     positions = []
     
-    # Usar apenas algumas janelas para acelerar
     num_windows = min(30, (N - window_size) // step + 1)
     
     for i in range(0, N - window_size + 1, max(step, (N - window_size) // num_windows)):
@@ -122,25 +120,168 @@ def load_data(uploaded_file):
         
         df = df.dropna(subset=['Latitude', 'Longitude', 'Velocity', 'HeartRate'])
         
-        return df
+        # Extrair informações do cabeçalho
+        lines = content.split('\n')
+        periodo = "Não identificado"
+        atleta = "Não identificado"
+        for line in lines[:10]:
+            if 'Period:' in line:
+                try:
+                    periodo = line.split('"')[1] if '"' in line else line.split(':')[1].strip().strip('"')
+                except:
+                    periodo = "Não identificado"
+            if 'Athlete:' in line:
+                try:
+                    atleta = line.split('"')[1] if '"' in line else line.split(':')[1].strip().strip('"')
+                except:
+                    atleta = "Não identificado"
+        
+        return df, atleta, periodo
     except Exception as e:
-        st.error(f"Erro ao carregar arquivo: {e}")
-        return None
+        st.error(f"Erro ao carregar arquivo {uploaded_file.name}: {e}")
+        return None, None, None
+
+# ==================== FUNÇÃO PARA CRIAR MAPA DE CAMPO DE FUTEBOL ====================
+
+def create_soccer_field():
+    """Cria um layout de campo de futebol oficial para sobreposição no mapa"""
+    
+    # Coordenadas do campo (em metros, normalizadas)
+    # Campo oficial: 105m x 68m
+    field_length = 105  # comprimento em metros
+    field_width = 68     # largura em metros
+    
+    # Linhas do campo
+    field_lines = []
+    
+    # Perímetro do campo
+    perimeter = go.layout.Shape(
+        type="rect",
+        x0=-field_length/2, x1=field_length/2,
+        y0=-field_width/2, y1=field_width/2,
+        line=dict(color="white", width=2),
+        fillcolor="rgba(34, 139, 34, 0.3)",  # Verde com transparência
+        layer="below"
+    )
+    
+    # Linha do meio de campo
+    center_line = go.layout.Shape(
+        type="line",
+        x0=0, x1=0,
+        y0=-field_width/2, y1=field_width/2,
+        line=dict(color="white", width=2)
+    )
+    
+    # Círculo central
+    center_circle = go.layout.Shape(
+        type="circle",
+        x0=-9.15, x1=9.15,
+        y0=-9.15, y1=9.15,
+        line=dict(color="white", width=2),
+        fillcolor="rgba(0,0,0,0)"
+    )
+    
+    # Ponto central
+    center_spot = go.layout.Shape(
+        type="circle",
+        x0=-0.3, x1=0.3,
+        y0=-0.3, y1=0.3,
+        fillcolor="white",
+        line=dict(color="white", width=0)
+    )
+    
+    # Grandes áreas (esquerda e direita)
+    # Área esquerda
+    left_penalty_area = go.layout.Shape(
+        type="rect",
+        x0=-field_length/2, x1=-field_length/2 + 16.5,
+        y0=-20.15, y1=20.15,
+        line=dict(color="white", width=2),
+        fillcolor="rgba(0,0,0,0)"
+    )
+    
+    # Área direita
+    right_penalty_area = go.layout.Shape(
+        type="rect",
+        x0=field_length/2 - 16.5, x1=field_length/2,
+        y0=-20.15, y1=20.15,
+        line=dict(color="white", width=2),
+        fillcolor="rgba(0,0,0,0)"
+    )
+    
+    # Pequenas áreas (esquerda)
+    left_goal_area = go.layout.Shape(
+        type="rect",
+        x0=-field_length/2, x1=-field_length/2 + 5.5,
+        y0=-9.15, y1=9.15,
+        line=dict(color="white", width=2),
+        fillcolor="rgba(0,0,0,0)"
+    )
+    
+    # Pequenas áreas (direita)
+    right_goal_area = go.layout.Shape(
+        type="rect",
+        x0=field_length/2 - 5.5, x1=field_length/2,
+        y0=-9.15, y1=9.15,
+        line=dict(color="white", width=2),
+        fillcolor="rgba(0,0,0,0)"
+    )
+    
+    # Marcas de pênalti (esquerda e direita)
+    left_penalty_spot = go.layout.Shape(
+        type="circle",
+        x0=-field_length/2 + 11, x1=-field_length/2 + 11.6,
+        y0=-0.3, y1=0.3,
+        fillcolor="white",
+        line=dict(color="white", width=0)
+    )
+    
+    right_penalty_spot = go.layout.Shape(
+        type="circle",
+        x0=field_length/2 - 11.6, x1=field_length/2 - 11,
+        y0=-0.3, y1=0.3,
+        fillcolor="white",
+        line=dict(color="white", width=0)
+    )
+    
+    # Arcos das áreas (círculos)
+    left_penalty_arc = go.layout.Shape(
+        type="path",
+        path=f"M {-field_length/2 + 16.5} 0 A 9.15 9.15 0 0 1 {-field_length/2 + 16.5 - 9.15} 0",
+        line=dict(color="white", width=2),
+        fillcolor="rgba(0,0,0,0)"
+    )
+    
+    right_penalty_arc = go.layout.Shape(
+        type="path",
+        path=f"M {field_length/2 - 16.5} 0 A 9.15 9.15 0 0 0 {field_length/2 - 16.5 + 9.15} 0",
+        line=dict(color="white", width=2),
+        fillcolor="rgba(0,0,0,0)"
+    )
+    
+    return [
+        perimeter, center_line, center_circle, center_spot,
+        left_penalty_area, right_penalty_area,
+        left_goal_area, right_goal_area,
+        left_penalty_spot, right_penalty_spot,
+        left_penalty_arc, right_penalty_arc
+    ]
 
 # ==================== SIDEBAR ====================
 
-st.sidebar.header("📁 Upload do Arquivo")
+st.sidebar.header("📁 Upload de Arquivos")
 st.sidebar.markdown("""
 ### Instruções:
 1. Clique em "Browse files"
-2. Selecione o arquivo CSV exportado pelo OpenField
+2. Selecione **um ou mais** arquivos CSV
 3. Aguarde o processamento automático
 """)
 
-uploaded_file = st.sidebar.file_uploader(
-    "Escolha o arquivo CSV",
+uploaded_files = st.sidebar.file_uploader(
+    "Escolha os arquivos CSV",
     type=['csv'],
-    help="Arquivo exportado pelo sistema OpenField no formato CSV"
+    accept_multiple_files=True,
+    help="Arquivos exportados pelo sistema OpenField no formato CSV"
 )
 
 with st.sidebar.expander("📋 Exemplo de formato esperado"):
@@ -157,36 +298,49 @@ with st.sidebar.expander("📋 Exemplo de formato esperado"):
 
 # ==================== PROCESSAMENTO PRINCIPAL ====================
 
-if uploaded_file is not None:
-    st.sidebar.success(f"✅ Arquivo carregado: {uploaded_file.name}")
-    st.sidebar.info(f"📊 Tamanho: {uploaded_file.size / 1024:.1f} KB")
+if uploaded_files:
+    st.sidebar.success(f"✅ {len(uploaded_files)} arquivo(s) carregado(s)")
     
-    with st.spinner('Processando dados...'):
-        df = load_data(uploaded_file)
+    # Carregar todos os arquivos
+    all_data = []
+    all_atletas = []
+    all_periodos = []
     
-    if df is not None and len(df) > 0:
-        # Extrair informações do cabeçalho
-        content = uploaded_file.getvalue().decode('utf-8')
-        lines = content.split('\n')
-        
-        periodo = "Não identificado"
-        atleta = "Não identificado"
-        for line in lines[:10]:
-            if 'Period:' in line:
-                try:
-                    periodo = line.split('"')[1] if '"' in line else line.split(':')[1].strip().strip('"')
-                except:
-                    periodo = "Não identificado"
-            if 'Athlete:' in line:
-                try:
-                    atleta = line.split('"')[1] if '"' in line else line.split(':')[1].strip().strip('"')
-                except:
-                    atleta = "Não identificado"
+    progress_bar = st.sidebar.progress(0)
+    for idx, file in enumerate(uploaded_files):
+        st.sidebar.info(f"📊 Processando: {file.name}")
+        df, atleta, periodo = load_data(file)
+        if df is not None and len(df) > 0:
+            df['arquivo_origem'] = file.name
+            all_data.append(df)
+            all_atletas.append(atleta)
+            all_periodos.append(periodo)
+        progress_bar.progress((idx + 1) / len(uploaded_files))
+    
+    if all_data:
+        # Combinar todos os dados
+        df_combined = pd.concat(all_data, ignore_index=True)
         
         st.sidebar.markdown("---")
-        st.sidebar.subheader("🏅 Informações do Atleta")
-        st.sidebar.write(f"**Atleta:** {atleta}")
-        st.sidebar.write(f"**Jogo:** {periodo}")
+        st.sidebar.subheader("🏅 Atletas Carregados")
+        for atleta, periodo, arquivo in zip(all_atletas, all_periodos, [f.name for f in uploaded_files]):
+            st.sidebar.write(f"**{atleta}** - {periodo} ({arquivo})")
+        
+        # Seleção de atleta para análise
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("🎯 Selecionar Atleta")
+        
+        atleta_selecionado = st.sidebar.selectbox(
+            "Escolha o atleta para análise",
+            options=all_atletas,
+            index=0
+        )
+        
+        # Filtrar dados do atleta selecionado
+        idx_atleta = all_atletas.index(atleta_selecionado)
+        df = all_data[idx_atleta]
+        atleta = all_atletas[idx_atleta]
+        periodo = all_periodos[idx_atleta]
         
         st.sidebar.markdown("---")
         st.sidebar.subheader("📊 Estatísticas")
@@ -200,6 +354,7 @@ if uploaded_file is not None:
         st.sidebar.markdown("---")
         st.sidebar.subheader("⚙️ Filtros")
         
+        # Filtro de tempo (global)
         if 'Seconds' in df.columns and df['Seconds'].max() > 0:
             max_time = df['Seconds'].max()
             time_range = st.sidebar.slider(
@@ -214,6 +369,7 @@ if uploaded_file is not None:
             time_filter = pd.Series([True] * len(df))
             time_range = (0, df['Seconds'].max() if 'Seconds' in df.columns else 100)
         
+        # Filtro de velocidade
         if 'Velocity' in df.columns and df['Velocity'].max() > 0:
             max_speed = df['Velocity'].max()
             min_speed = df['Velocity'].min()
@@ -255,69 +411,191 @@ if uploaded_file is not None:
             fc_max = df_filtered['HeartRate'].max() if 'HeartRate' in df_filtered.columns else 0
             st.metric("FC máxima", f"{fc_max:.0f} bpm")
         
-        # Criar abas (agora com 6 abas)
+        # Criar abas
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🗺️ Mapa do Percurso", "📈 Gráficos de Desempenho", 
                                                         "⚡ Velocidade e Aceleração", "❤️ Frequência Cardíaca",
                                                         "🔄 Aceleração vs Velocidade", "📊 Entropia Amostral"])
         
-        # ==================== TAB 1: MAPA ====================
+        # ==================== TAB 1: MAPA COM CAMPO DE FUTEBOL E SLIDER TEMPORAL ====================
         with tab1:
-            st.subheader("Percurso do Atleta no Campo")
+            st.subheader("Percurso do Atleta no Campo de Futebol")
             
-            center_lat = df_filtered['Latitude'].mean() if 'Latitude' in df_filtered.columns else -23.5505
-            center_lon = df_filtered['Longitude'].mean() if 'Longitude' in df_filtered.columns else -46.6333
+            # Slider temporal para filtrar o mapa
+            st.markdown("### ⏱️ Filtro Temporal para o Mapa")
+            col_tempo1, col_tempo2 = st.columns([3, 1])
             
-            map_style = st.selectbox(
-                "Estilo do mapa",
-                ["open-street-map", "carto-positron", "carto-darkmatter", "stamen-terrain"],
-                index=0
-            )
+            with col_tempo1:
+                if 'Seconds' in df_filtered.columns:
+                    max_tempo_mapa = df_filtered['Seconds'].max()
+                    tempo_selecionado = st.slider(
+                        "Selecione o tempo (segundos) para visualizar o percurso até o momento",
+                        min_value=0.0,
+                        max_value=float(max_tempo_mapa),
+                        value=float(max_tempo_mapa),
+                        step=5.0,
+                        help="O mapa mostrará o percurso desde o início até o tempo selecionado"
+                    )
+                    
+                    # Filtrar dados para o mapa
+                    df_mapa = df_filtered[df_filtered['Seconds'] <= tempo_selecionado].copy()
+                else:
+                    df_mapa = df_filtered.copy()
+                    tempo_selecionado = df_filtered['Seconds'].max() if 'Seconds' in df_filtered.columns else 100
             
+            with col_tempo2:
+                st.metric("Tempo selecionado", f"{tempo_selecionado:.0f} s")
+                st.metric("Pontos no mapa", len(df_mapa))
+            
+            # Calcular centro do mapa
+            center_lat = df_mapa['Latitude'].mean() if 'Latitude' in df_mapa.columns else -23.5505
+            center_lon = df_mapa['Longitude'].mean() if 'Longitude' in df_mapa.columns else -46.6333
+            
+            # Opções de visualização
+            col_op1, col_op2 = st.columns(2)
+            with col_op1:
+                show_field = st.checkbox("🗺️ Mostrar campo de futebol", value=True)
+                map_style = st.selectbox(
+                    "Estilo do mapa base",
+                    ["open-street-map", "carto-positron", "carto-darkmatter", "stamen-terrain"],
+                    index=0
+                )
+            
+            with col_op2:
+                show_trail = st.checkbox("📊 Mostrar trilha com cores", value=True)
+                marker_size = st.slider("Tamanho dos marcadores", 3, 12, 6)
+            
+            # Criar figura do mapa
             fig_map = go.Figure()
             
-            fig_map.add_trace(go.Scattermapbox(
-                lat=df_filtered['Latitude'],
-                lon=df_filtered['Longitude'],
-                mode='lines+markers',
-                line=dict(width=3, color='red'),
-                marker=dict(
-                    size=6,
-                    color=df_filtered['Velocity'] if 'Velocity' in df_filtered.columns else 'blue',
-                    colorscale='Viridis',
-                    showscale=True,
-                    colorbar=dict(title="Velocidade<br>(km/h)", x=1.02)
-                ),
-                text=[f"<b>Tempo:</b> {t:.1f}s<br><b>Velocidade:</b> {v:.1f} km/h<br><b>FC:</b> {h:.0f} bpm" 
-                      for t, v, h in zip(df_filtered['Seconds'] if 'Seconds' in df_filtered.columns else range(len(df_filtered)), 
-                                        df_filtered['Velocity'] if 'Velocity' in df_filtered.columns else [0]*len(df_filtered),
-                                        df_filtered['HeartRate'] if 'HeartRate' in df_filtered.columns else [0]*len(df_filtered))],
-                hoverinfo='text',
-                name='Percurso'
-            ))
+            # Adicionar linha do percurso com gradiente de tempo
+            if show_trail and len(df_mapa) > 1:
+                # Criar gradiente de tempo
+                times_normalized = (df_mapa['Seconds'] - df_mapa['Seconds'].min()) / (df_mapa['Seconds'].max() - df_mapa['Seconds'].min()) if df_mapa['Seconds'].max() > df_mapa['Seconds'].min() else np.zeros(len(df_mapa))
+                
+                fig_map.add_trace(go.Scattermapbox(
+                    lat=df_mapa['Latitude'],
+                    lon=df_mapa['Longitude'],
+                    mode='lines+markers',
+                    line=dict(width=3, color='red'),
+                    marker=dict(
+                        size=marker_size,
+                        color=times_normalized,
+                        colorscale='Viridis',
+                        showscale=True,
+                        colorbar=dict(title="Progresso<br>do Jogo", x=1.02),
+                        cmin=0,
+                        cmax=1
+                    ),
+                    text=[f"<b>Tempo:</b> {t:.1f}s<br><b>Velocidade:</b> {v:.1f} km/h<br><b>FC:</b> {h:.0f} bpm" 
+                          for t, v, h in zip(df_mapa['Seconds'] if 'Seconds' in df_mapa.columns else range(len(df_mapa)), 
+                                            df_mapa['Velocity'] if 'Velocity' in df_mapa.columns else [0]*len(df_mapa),
+                                            df_mapa['HeartRate'] if 'HeartRate' in df_mapa.columns else [0]*len(df_mapa))],
+                    hoverinfo='text',
+                    name='Percurso'
+                ))
+            else:
+                fig_map.add_trace(go.Scattermapbox(
+                    lat=df_mapa['Latitude'],
+                    lon=df_mapa['Longitude'],
+                    mode='lines+markers',
+                    line=dict(width=3, color='red'),
+                    marker=dict(
+                        size=marker_size,
+                        color=df_mapa['Velocity'] if 'Velocity' in df_mapa.columns else 'blue',
+                        colorscale='Viridis',
+                        showscale=True,
+                        colorbar=dict(title="Velocidade<br>(km/h)", x=1.02)
+                    ),
+                    text=[f"<b>Tempo:</b> {t:.1f}s<br><b>Velocidade:</b> {v:.1f} km/h<br><b>FC:</b> {h:.0f} bpm" 
+                          for t, v, h in zip(df_mapa['Seconds'] if 'Seconds' in df_mapa.columns else range(len(df_mapa)), 
+                                            df_mapa['Velocity'] if 'Velocity' in df_mapa.columns else [0]*len(df_mapa),
+                                            df_mapa['HeartRate'] if 'HeartRate' in df_mapa.columns else [0]*len(df_mapa))],
+                    hoverinfo='text',
+                    name='Percurso'
+                ))
             
-            fig_map.add_trace(go.Scattermapbox(
-                lat=[df_filtered['Latitude'].iloc[0], df_filtered['Latitude'].iloc[-1]],
-                lon=[df_filtered['Longitude'].iloc[0], df_filtered['Longitude'].iloc[-1]],
-                mode='markers',
-                marker=dict(size=12, color=['green', 'red'], symbol=['marker', 'marker']),
-                text=['🏁 Início', '🏁 Fim'],
-                hoverinfo='text',
-                name='Pontos'
-            ))
+            # Adicionar marcadores para início e fim
+            if len(df_mapa) > 0:
+                fig_map.add_trace(go.Scattermapbox(
+                    lat=[df_mapa['Latitude'].iloc[0], df_mapa['Latitude'].iloc[-1]],
+                    lon=[df_mapa['Longitude'].iloc[0], df_mapa['Longitude'].iloc[-1]],
+                    mode='markers',
+                    marker=dict(size=14, color=['green', 'red'], symbol=['marker', 'marker']),
+                    text=['🏁 Início', '🏁 Fim'],
+                    hoverinfo='text',
+                    name='Pontos'
+                ))
+            
+            # Adicionar campo de futebol como shapes
+            if show_field:
+                field_shapes = create_soccer_field()
+                for shape in field_shapes:
+                    fig_map.add_shape(shape)
+                
+                # Adicionar texto dos gols
+                fig_map.add_annotation(
+                    x=df_mapa['Longitude'].mean() + 0.0005,
+                    y=df_mapa['Latitude'].mean(),
+                    text="⚽ GOL",
+                    showarrow=False,
+                    font=dict(size=12, color="white"),
+                    bgcolor="rgba(0,0,0,0.5)"
+                )
+            
+            # Configurar layout do mapa
+            mapbox_center = dict(lat=center_lat, lon=center_lon)
+            
+            # Ajustar zoom baseado no campo
+            if show_field and len(df_mapa) > 0:
+                # Calcular bounding box dos dados
+                lat_range = df_mapa['Latitude'].max() - df_mapa['Latitude'].min()
+                lon_range = df_mapa['Longitude'].max() - df_mapa['Longitude'].min()
+                # Ajustar zoom para mostrar todo o percurso
+                zoom_level = 18 - min(lat_range * 100, lon_range * 100)
+                zoom_level = max(14, min(zoom_level, 18))
+            else:
+                zoom_level = 15
             
             fig_map.update_layout(
                 mapbox=dict(
                     style=map_style,
-                    center=dict(lat=center_lat, lon=center_lon),
-                    zoom=15
+                    center=mapbox_center,
+                    zoom=zoom_level
                 ),
                 margin=dict(l=0, r=0, t=30, b=0),
-                height=650,
-                title={'text': f"Trajetória de {atleta} - {periodo}", 'x': 0.5, 'xanchor': 'center'},
+                height=700,
+                title={
+                    'text': f"Trajetória de {atleta} - {periodo} | Tempo: {tempo_selecionado:.0f}s",
+                    'x': 0.5,
+                    'xanchor': 'center'
+                },
                 hovermode='closest'
             )
             
             st.plotly_chart(fig_map, use_container_width=True)
+            
+            # Informações adicionais sobre o percurso
+            with st.expander("📊 Detalhes do Percurso"):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.write("**📍 Ponto Inicial**")
+                    st.write(f"Latitude: {df_mapa['Latitude'].iloc[0]:.6f}")
+                    st.write(f"Longitude: {df_mapa['Longitude'].iloc[0]:.6f}")
+                    st.write(f"Tempo: {df_mapa['Seconds'].iloc[0]:.0f}s")
+                with col2:
+                    st.write("**📍 Ponto Final**")
+                    st.write(f"Latitude: {df_mapa['Latitude'].iloc[-1]:.6f}")
+                    st.write(f"Longitude: {df_mapa['Longitude'].iloc[-1]:.6f}")
+                    st.write(f"Tempo: {df_mapa['Seconds'].iloc[-1]:.0f}s")
+                with col3:
+                    # Calcular deslocamento aproximado
+                    delta_lat = (df_mapa['Latitude'].iloc[-1] - df_mapa['Latitude'].iloc[0]) * 111111
+                    delta_lon = (df_mapa['Longitude'].iloc[-1] - df_mapa['Longitude'].iloc[0]) * 111111 * 0.92
+                    deslocamento = np.sqrt(delta_lat**2 + delta_lon**2)
+                    st.write("**📏 Deslocamento**")
+                    st.write(f"ΔLatitude: {delta_lat:.0f} m")
+                    st.write(f"ΔLongitude: {delta_lon:.0f} m")
+                    st.write(f"Deslocamento total: {deslocamento:.0f} m")
         
         # ==================== TAB 2: GRÁFICOS DE DESEMPENHO ====================
         with tab2:
@@ -522,16 +800,15 @@ if uploaded_file is not None:
                 
                 # Cores para cada quadrante
                 cores_quadrantes = {
-                    'Q1 - Alta Vel + Alta Acel': '#e74c3c',  # Vermelho
-                    'Q2 - Baixa Vel + Alta Acel': '#f39c12',  # Laranja
-                    'Q3 - Baixa Vel + Baixa Acel': '#2ecc71',  # Verde
-                    'Q4 - Alta Vel + Baixa Acel': '#3498db'    # Azul
+                    'Q1 - Alta Vel + Alta Acel': '#e74c3c',
+                    'Q2 - Baixa Vel + Alta Acel': '#f39c12',
+                    'Q3 - Baixa Vel + Baixa Acel': '#2ecc71',
+                    'Q4 - Alta Vel + Baixa Acel': '#3498db'
                 }
                 
-                # Criar figura com scatter plot
+                # Criar figura
                 fig_acc_vel = go.Figure()
                 
-                # Adicionar pontos por quadrante
                 for quadrante, cor in cores_quadrantes.items():
                     mask = df_filtered['Quadrante'] == quadrante
                     fig_acc_vel.add_trace(go.Scatter(
@@ -539,12 +816,7 @@ if uploaded_file is not None:
                         y=df_filtered[mask]['Acceleration'],
                         mode='markers',
                         name=quadrante,
-                        marker=dict(
-                            size=8,
-                            color=cor,
-                            opacity=0.6,
-                            symbol='circle'
-                        ),
+                        marker=dict(size=8, color=cor, opacity=0.6, symbol='circle'),
                         text=[f"<b>Tempo:</b> {t:.1f}s<br><b>Vel:</b> {v:.1f} km/h<br><b>Acel:</b> {a:.2f} m/s²"
                               for t, v, a in zip(df_filtered[mask]['Seconds'] if 'Seconds' in df_filtered.columns else range(len(df_filtered[mask])),
                                                 df_filtered[mask]['Velocity'],
@@ -560,7 +832,6 @@ if uploaded_file is not None:
                                      annotation_text=f"Média Acel: {mean_acc:.2f} m/s²", 
                                      annotation_position="right")
                 
-                # Configurar layout
                 fig_acc_vel.update_layout(
                     title="Relação Aceleração vs Velocidade",
                     xaxis_title="Velocidade (km/h)",
@@ -586,20 +857,19 @@ if uploaded_file is not None:
                 
                 st.dataframe(quadrant_stats, use_container_width=True)
                 
-                # Interpretação dos quadrantes
+                # Interpretação
                 with st.expander("📖 Interpretação dos Quadrantes"):
                     st.markdown("""
                     | Quadrante | Significado | Interpretação no Esporte |
                     |-----------|-------------|--------------------------|
-                    | **Q1 - Alta Vel + Alta Acel** | Alta velocidade com aceleração positiva | **Esforço máximo** - Sprints, arrancadas, mudanças de ritmo intensas |
-                    | **Q2 - Baixa Vel + Alta Acel** | Baixa velocidade com aceleração positiva | **Partidas e mudanças de direção** - Saídas de posição parada, giros rápidos |
-                    | **Q3 - Baixa Vel + Baixa Acel** | Baixa velocidade com desaceleração | **Recuperação** - Movimentos de baixa intensidade, pausas, andando |
-                    | **Q4 - Alta Vel + Baixa Acel** | Alta velocidade com desaceleração | **Frenagem e controle** - Desaceleração após sprint, mudanças defensivas |
+                    | **Q1 - Alta Vel + Alta Acel** | Alta velocidade com aceleração positiva | **Esforço máximo** - Sprints, arrancadas |
+                    | **Q2 - Baixa Vel + Alta Acel** | Baixa velocidade com aceleração positiva | **Partidas** - Saídas de posição parada |
+                    | **Q3 - Baixa Vel + Baixa Acel** | Baixa velocidade com desaceleração | **Recuperação** - Movimentos de baixa intensidade |
+                    | **Q4 - Alta Vel + Baixa Acel** | Alta velocidade com desaceleração | **Frenagem** - Desaceleração após sprint |
                     """)
                 
-                # Gráfico de distribuição por quadrante
+                # Gráfico de pizza
                 st.markdown("### 🎯 Distribuição do Tempo por Quadrante")
-                
                 fig_pie = px.pie(
                     quadrant_stats, 
                     values='Contagem', 
@@ -609,9 +879,6 @@ if uploaded_file is not None:
                 )
                 fig_pie.update_traces(textposition='inside', textinfo='percent+label')
                 st.plotly_chart(fig_pie, use_container_width=True)
-                
-            else:
-                st.warning("⚠️ Dados de aceleração ou velocidade não disponíveis para esta análise.")
         
         # ==================== TAB 6: ENTROPIA AMOSTRAL ====================
         with tab6:
@@ -622,7 +889,6 @@ if uploaded_file is not None:
             - **Menor entropia** = padrões mais regulares, repetitivos e previsíveis
             """)
             
-            # Seleção da variável
             var_entropy_options = {}
             if 'Velocity' in df_filtered.columns:
                 var_entropy_options['Velocity'] = 'Velocidade (km/h)'
@@ -640,54 +906,42 @@ if uploaded_file is not None:
                 key="entropy_var"
             )
             
-            # Parâmetros
             col1, col2, col3 = st.columns(3)
             with col1:
-                m_value = st.selectbox("Comprimento da sequência (m)", [1, 2, 3], index=1,
-                                      help="2 é o padrão para análise de movimento")
+                m_value = st.selectbox("Comprimento da sequência (m)", [1, 2, 3], index=1)
             with col2:
-                r_value = st.slider("Tolerância (r)", 0.1, 0.5, 0.2, step=0.05,
-                                   help="0.2 é o valor padrão para dados esportivos")
+                r_value = st.slider("Tolerância (r)", 0.1, 0.5, 0.2, step=0.05)
             with col3:
-                use_rolling = st.checkbox("Análise por janela deslizante", value=True,
-                                         help="Mostra evolução temporal da entropia")
+                use_rolling = st.checkbox("Análise por janela deslizante", value=True)
             
-            # Botão para processar
             process_button = st.button("🚀 Processar Análise de Entropia Amostral", type="primary", use_container_width=True)
             
             if process_button:
-                # Obter dados
                 data_series = df_filtered[selected_entropy_var].dropna().values
                 
                 if len(data_series) > 30:
-                    with st.spinner("Calculando entropia amostral... Isso pode levar alguns segundos"):
-                        # Calcular entropia amostral global
+                    with st.spinner("Calculando entropia amostral..."):
                         sample_val = sample_entropy_fast(data_series, m=m_value, r=r_value)
                         cv_val = np.std(data_series) / np.mean(data_series) if np.mean(data_series) > 0 else 0
                     
-                    # Mostrar métricas
                     st.markdown("### 📈 Métrica de Entropia Amostral Global")
                     col_a, col_b = st.columns(2)
                     
                     with col_a:
-                        st.metric("Entropia Amostral", f"{sample_val:.4f}" if not np.isnan(sample_val) else "N/A",
-                                 help="Mede a regularidade temporal. Valores baixos = padrões repetitivos")
+                        st.metric("Entropia Amostral", f"{sample_val:.4f}" if not np.isnan(sample_val) else "N/A")
                     with col_b:
-                        st.metric("Coeficiente de Variação", f"{cv_val:.3f}",
-                                 help="Variabilidade relativa dos dados")
+                        st.metric("Coeficiente de Variação", f"{cv_val:.3f}")
                     
-                    # Classificação
-                    st.markdown("**🏷️ Classificação da Complexidade:**")
+                    st.markdown("**🏷️ Classificação:**")
                     if sample_val < 0.5:
-                        st.info("🔵 **Baixa entropia** - Movimento padronizado e repetitivo (alta regularidade)")
+                        st.info("🔵 **Baixa entropia** - Movimento padronizado e repetitivo")
                     elif sample_val < 1.2:
                         st.success("🟢 **Média entropia** - Variabilidade normal do esporte")
                     else:
-                        st.warning("🟠 **Alta entropia** - Grande variabilidade e imprevisibilidade (baixa regularidade)")
+                        st.warning("🟠 **Alta entropia** - Grande variabilidade e imprevisibilidade")
                     
                     # Série temporal
                     st.markdown("### 📉 Série Temporal")
-                    
                     fig_entropy_time = go.Figure()
                     time_x = df_filtered['Seconds'].values if 'Seconds' in df_filtered.columns else range(len(data_series))
                     
@@ -711,7 +965,7 @@ if uploaded_file is not None:
                     
                     # Análise por janela deslizante
                     if use_rolling and len(data_series) > 100:
-                        with st.spinner("Calculando entropia por janela deslizante..."):
+                        with st.spinner("Calculando entropia por janela..."):
                             window_size = min(100, len(data_series) // 5)
                             positions, rolling_ent = rolling_sample_entropy(data_series, 
                                                                             window_size=window_size, 
@@ -719,8 +973,7 @@ if uploaded_file is not None:
                                                                             m=m_value, r=r_value)
                         
                         if len(rolling_ent) > 0:
-                            st.markdown("### 📊 Evolução da Entropia Amostral ao Longo do Tempo")
-                            
+                            st.markdown("### 📊 Evolução da Entropia Amostral")
                             fig_rolling = go.Figure()
                             
                             if 'Seconds' in df_filtered.columns:
@@ -744,67 +997,32 @@ if uploaded_file is not None:
                             )
                             st.plotly_chart(fig_rolling, use_container_width=True)
                             
-                            # Interpretação da tendência
                             if len(rolling_ent) > 3:
                                 trend = rolling_ent[-1] - rolling_ent[0]
                                 if trend > 0.1:
-                                    st.info("📈 **Tendência: Entropia aumentando** - Movimentos mais variáveis e imprevisíveis")
+                                    st.info("📈 **Tendência: Entropia aumentando** - Movimentos mais variáveis")
                                 elif trend < -0.1:
-                                    st.warning("📉 **Tendência: Entropia diminuindo** - Possível fadiga ou padrões mais repetitivos")
+                                    st.warning("📉 **Tendência: Entropia diminuindo** - Possível fadiga")
                                 else:
                                     st.success("➡️ **Tendência: Entropia estável** - Comportamento consistente")
-                    
-                    # Histograma
-                    st.markdown("### 📊 Distribuição dos Valores")
-                    fig_hist_entropy = px.histogram(x=data_series, nbins=30, 
-                                                    title="Histograma",
-                                                    labels={'x': var_entropy_options[selected_entropy_var]},
-                                                    color_discrete_sequence=['steelblue'])
-                    st.plotly_chart(fig_hist_entropy, use_container_width=True)
                     
                     # Valores de referência
                     with st.expander("📌 Valores de Referência para Entropia Amostral"):
                         st.markdown("""
                         | Categoria | Entropia Amostral | Interpretação |
                         |-----------|------------------|---------------|
-                        | **Baixa** | < 0.5 | Movimento repetitivo, padrões regulares, baixa complexidade |
-                        | **Média** | 0.5 - 1.2 | Variabilidade normal do esporte, equilíbrio entre regularidade e variação |
-                        | **Alta** | > 1.2 | Alta complexidade, movimentos variados e imprevisíveis |
+                        | **Baixa** | < 0.5 | Movimento repetitivo, padrões regulares |
+                        | **Média** | 0.5 - 1.2 | Variabilidade normal do esporte |
+                        | **Alta** | > 1.2 | Alta complexidade, movimentos variados |
                         
-                        **Aplicações no Esporte:**
-                        - **Entropia baixa** pode indicar **fadiga** ou movimentos muito padronizados
-                        - **Entropia alta** pode indicar **alta variabilidade** e adaptabilidade
-                        - Acompanhar a evolução pode ajudar a **prevenir lesões** e **otimizar treinos**
-                        - Valores muito baixos podem indicar **movimentos robóticos** ou falta de criatividade tática
+                        **Aplicações:**
+                        - Entropia baixa pode indicar **fadiga**
+                        - Entropia alta indica **alta variabilidade** e adaptabilidade
                         """)
-                
                 else:
-                    st.warning(f"⚠️ Dados insuficientes para análise de entropia. São necessários pelo menos 30 pontos. Atualmente: {len(data_series)} pontos.")
+                    st.warning(f"⚠️ Dados insuficientes. Necessários 30 pontos. Atual: {len(data_series)}")
             else:
-                # Estado inicial antes do botão
                 st.info("👆 **Clique no botão acima para iniciar a análise de entropia amostral.**")
-                st.markdown("""
-                ### 📝 Sobre a Entropia Amostral (Sample Entropy):
-                
-                A Entropia Amostral avalia a **regularidade** dos movimentos do atleta:
-                
-                **Como funciona:**
-                - Compara sequências de dados para identificar padrões repetitivos
-                - Valores mais altos indicam maior complexidade e imprevisibilidade
-                - Valores mais baixos indicam movimentos mais regulares e previsíveis
-                
-                **Parâmetros:**
-                - **m (comprimento da sequência)**: 2 é o padrão para análise de movimento
-                - **r (tolerância)**: 0.2 do desvio padrão é o valor recomendado
-                
-                **Para melhores resultados:**
-                1. Selecione a variável que deseja analisar (Velocidade, FC, etc.)
-                2. Ajuste os parâmetros conforme necessário
-                3. Clique em "Processar Análise de Entropia Amostral"
-                4. Aguarde o processamento (alguns segundos)
-                
-                **Dica:** Quanto mais dados, mais precisa será a análise!
-                """)
         
         # Botão de download
         st.markdown("---")
@@ -817,15 +1035,14 @@ if uploaded_file is not None:
         )
         
         st.markdown("---")
-        st.markdown(f"**📊 Resumo da análise:** {len(df_filtered)} registros")
+        st.markdown(f"**📊 Resumo da análise:** {len(df_filtered)} registros | **Atleta:** {atleta}")
         if 'Seconds' in df_filtered.columns:
             st.markdown(f"**⏱️ Período:** {time_range[0]:.0f}s - {time_range[1]:.0f}s")
         if 'Velocity' in df_filtered.columns:
             st.markdown(f"**⚡ Filtro de velocidade:** {speed_range[0]:.1f} - {speed_range[1]:.1f} km/h")
     
     else:
-        st.error("❌ Erro ao processar o arquivo. Verifique se o formato está correto.")
-        st.info("💡 Dica: O arquivo deve ser exportado pelo sistema OpenField no formato CSV.")
+        st.error("❌ Nenhum arquivo válido foi processado. Verifique o formato dos arquivos.")
 
 else:
     # Tela inicial
@@ -835,9 +1052,15 @@ else:
     Esta ferramenta permite visualizar e analisar os dados de posicionamento e desempenho de atletas.
     
     ### 🚀 Como usar:
-    1. **Faça upload** do arquivo CSV na barra lateral esquerda
+    1. **Faça upload** de um ou mais arquivos CSV na barra lateral esquerda
     2. Aguarde o processamento automático
-    3. Explore as visualizações nas abas
+    3. Selecione o atleta desejado no menu
+    4. Explore as visualizações nas abas
+    
+    ### ✨ Novas funcionalidades:
+    - **Múltiplos arquivos**: Carregue dados de vários atletas simultaneamente
+    - **Filtro temporal no mapa**: Selecione o tempo para ver a evolução do percurso
+    - **Campo de futebol**: Visualização com dimensões oficiais do campo
     
     ---
     **👈 Clique em "Browse files" na barra lateral para começar!**
@@ -849,15 +1072,15 @@ else:
         st.markdown("""
         **Abas disponíveis:**
         
-        1. **🗺️ Mapa do Percurso** - Visualização da trajetória do atleta no campo
+        1. **🗺️ Mapa do Percurso** - Com campo de futebol e filtro temporal
         2. **📈 Gráficos de Desempenho** - Análise de velocidade, FC e outras variáveis
         3. **⚡ Velocidade e Aceleração** - Distribuição e evolução temporal
         4. **❤️ Frequência Cardíaca** - Análise de zonas de intensidade
-        5. **🔄 Aceleração vs Velocidade** - Relação entre aceleração e velocidade com quadrantes
+        5. **🔄 Aceleração vs Velocidade** - Relação com quadrantes
         6. **📊 Entropia Amostral** - Análise da regularidade dos movimentos
         
-        **Nova funcionalidade:**
-        - **Gráfico Aceleração vs Velocidade com quadrantes** - Identifica padrões de movimento
-        - Classificação automática em 4 quadrantes com base nas médias
-        - Estatísticas detalhadas por quadrante
+        **Múltiplos arquivos:**
+        - Selecione vários arquivos CSV ao mesmo tempo
+        - Compare dados de diferentes atletas ou jogos
+        - Selecione qual atleta visualizar no momento
         """)
