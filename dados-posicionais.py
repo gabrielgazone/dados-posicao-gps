@@ -36,13 +36,10 @@ X_MAX = CAMPO_COMPRIMENTO / 2
 Y_MIN = -CAMPO_LARGURA / 2
 Y_MAX = CAMPO_LARGURA / 2
 
-# ==================== FUNÇÃO DO PERFIL ACELERAÇÃO-VELOCIDADE (COM CACHE) ====================
+# ==================== FUNÇÃO DO PERFIL ACELERAÇÃO-VELOCIDADE ====================
 
 @st.cache_data(ttl=3600)
 def fit_velocidade_aceleracao_cached(velocidades_tuple, aceleracoes_tuple):
-    """
-    Versão cacheada do ajuste de curva
-    """
     velocidades = np.array(velocidades_tuple)
     aceleracoes = np.array(aceleracoes_tuple)
     
@@ -100,7 +97,7 @@ def calcular_asp_metrics(df):
         result['f0'] = result['a0']
     return result
 
-# ==================== FUNÇÕES DE CONVERSÃO (COM CACHE) ====================
+# ==================== FUNÇÕES DE CONVERSÃO ====================
 
 @st.cache_data(ttl=3600)
 def converter_gps_para_campo_cached(lat, lon, bounds):
@@ -466,6 +463,7 @@ for i, periodo in enumerate(st.session_state.periodos):
         
         st.session_state.periodos[i] = {"nome": novo_nome, "inicio": novo_inicio, "fim": novo_fim}
         
+        # PROVA REAL: Horário e Duração
         if 'reference_datetime' in st.session_state and st.session_state.reference_datetime:
             inicio_horario = get_horario_formatado(novo_inicio, st.session_state.reference_datetime)
             fim_horario = get_horario_formatado(novo_fim, st.session_state.reference_datetime)
@@ -478,25 +476,21 @@ for i in sorted(periodos_para_remover, reverse=True):
     if len(st.session_state.periodos) > 0:
         st.rerun()
 
-# Opção "Todos os períodos"
-opcoes_periodos = ["Todos os períodos"] + [p['nome'] for p in st.session_state.periodos]
-periodos_selecionados = st.sidebar.multiselect(
-    "Selecionar períodos para análise",
-    options=range(len(opcoes_periodos)),
-    format_func=lambda x: opcoes_periodos[x],
-    default=[0]
-)
+# ==================== BOTÃO DE PROCESSAMENTO ====================
+
+st.sidebar.markdown("---")
+processar = st.sidebar.button("🚀 PROCESSAR ANÁLISE", type="primary", use_container_width=True)
 
 # ==================== PROCESSAMENTO PRINCIPAL ====================
 
-if uploaded_files:
+if uploaded_files and processar:
     with st.spinner("Carregando e processando arquivos..."):
         all_data = []
         all_atletas = []
         all_periodos = []
         all_start_datetimes = []
         
-        for idx, file in enumerate(uploaded_files):
+        for file in uploaded_files:
             df, atleta, periodo, start_datetime = load_data(file)
             if df is not None and len(df) > 0:
                 all_data.append(df)
@@ -569,6 +563,15 @@ if uploaded_files:
             st.sidebar.markdown("---")
             st.sidebar.subheader("🎨 Opções")
             show_field = st.sidebar.checkbox("Mostrar campo", value=True)
+            
+            # Opção "Todos os períodos"
+            opcoes_periodos = ["Todos os períodos"] + [p['nome'] for p in st.session_state.periodos]
+            periodos_selecionados = st.sidebar.multiselect(
+                "Selecionar períodos para análise",
+                options=range(len(opcoes_periodos)),
+                format_func=lambda x: opcoes_periodos[x],
+                default=[0]
+            )
             
             # Filtrar dados por período selecionado
             dfs_por_periodo = {}
@@ -662,7 +665,7 @@ if uploaded_files:
                 "📊 Comparação Esportiva"
             ])
             
-            # TAB 1: MAPA (simplificada para performance)
+            # TAB 1: MAPA
             with tab1:
                 st.subheader("Percurso no Campo de Futebol")
                 opcoes_mapa = list(dfs_por_periodo.keys())
@@ -682,7 +685,6 @@ if uploaded_files:
                     fig_map.add_shape(type="line", x0=(lon_min+lon_max)/2, x1=(lon_min+lon_max)/2, y0=lat_min, y1=lat_max,
                                       line=dict(color="white", width=1, dash="dash"))
                 
-                # Amostragem para performance (se muitos pontos)
                 if len(df_mapa) > 5000:
                     df_mapa_plot = df_mapa.sample(5000, random_state=42)
                     st.caption(f"📊 Exibindo amostra de 5.000 pontos (total: {len(df_mapa):,})")
@@ -706,7 +708,7 @@ if uploaded_files:
                                       title=f"Trajetória de {selected_atletas[0]} - {periodo_selecionado_mapa} - {nome_estadio}")
                 st.plotly_chart(fig_map, use_container_width=True)
             
-            # TAB 2: ANÁLISE TÁTICA (simplificada para performance)
+            # TAB 2: ANÁLISE TÁTICA
             with tab2:
                 st.subheader("Análise Tática - Posicionamento no Campo")
                 st.markdown(f"Campo com dimensões oficiais: **{CAMPO_COMPRIMENTO}m x {CAMPO_LARGURA}m**")
@@ -716,7 +718,7 @@ if uploaded_files:
                 df_tat = dfs_por_periodo[periodo_selecionado_tatica]
                 start_dt_tat = df_tat['start_datetime'].iloc[0] if len(df_tat) > 0 else None
                 
-                # Cards de métricas do período
+                # CARDS DE MÉTRICAS DO PERÍODO
                 st.markdown(f"### 📊 Métricas do Período: {periodo_selecionado_tatica}")
                 col_metric1, col_metric2, col_metric3, col_metric4, col_metric5 = st.columns(5)
                 with col_metric1:
@@ -733,10 +735,9 @@ if uploaded_files:
                 st.markdown("---")
                 
                 if bounds_estadio:
-                    # Amostragem para performance
                     if len(df_tat) > 3000:
                         df_tat_sample = df_tat.sample(3000, random_state=42)
-                        st.caption(f"📊 Usando amostra de 3.000 pontos para otimizar performance (total: {len(df_tat):,})")
+                        st.caption(f"📊 Usando amostra de 3.000 pontos (total: {len(df_tat):,})")
                     else:
                         df_tat_sample = df_tat
                     
@@ -866,7 +867,7 @@ if uploaded_files:
                 csv_tatico = zona_metrics.reset_index().to_csv(index=False)
                 st.download_button("📥 Exportar análise tática", csv_tatico, f"analise_tatica_{selected_atletas[0]}_{periodo_selecionado_tatica}.csv")
             
-            # TAB 3: PERFIL ACELERAÇÃO-VELOCIDADE (simplificada)
+            # TAB 3: PERFIL ACELERAÇÃO-VELOCIDADE
             with tab3:
                 st.subheader("⚡ Perfil Aceleração-Velocidade (Acceleration-Speed Profile)")
                 
@@ -904,7 +905,6 @@ if uploaded_files:
                         
                         a_ms2 = df_sprints['Acceleration'].values
                         
-                        # Amostragem para performance
                         if len(v_ms) > 1000:
                             idx = np.random.choice(len(v_ms), 1000, replace=False)
                             v_ms = v_ms[idx]
@@ -929,7 +929,7 @@ if uploaded_files:
                         ))
                     
                     fig_asp.update_layout(
-                        title="Relação Aceleração-Velocidade (ASP)",
+                        title="Relação Aceleração-Velocidade (ASP) - Eixos invertidos",
                         xaxis_title="Aceleração (m/s²)",
                         yaxis_title="Velocidade (m/s)",
                         height=500,
@@ -942,7 +942,7 @@ if uploaded_files:
                     asp_df.columns = ['Aceleração Máx (m/s²)', 'Velocidade Teórica (m/s)', 'Velocidade Máx (m/s)', 'Potência Máx (W/kg)', 'R²']
                     st.dataframe(asp_df, use_container_width=True)
             
-            # TAB 4: ANÁLISE DE PERFORMANCE CARDÍACA (simplificada)
+            # TAB 4: ANÁLISE DE PERFORMANCE CARDÍACA
             with tab4:
                 st.subheader("❤️ Análise de Performance Cardíaca")
                 
@@ -951,7 +951,6 @@ if uploaded_files:
                 df_fc = dfs_por_periodo[periodo_selecionado_fc]
                 start_dt_fc = df_fc['start_datetime'].iloc[0] if len(df_fc) > 0 else None
                 
-                # Amostragem para performance
                 if len(df_fc) > 2000:
                     df_fc_plot = df_fc.sample(2000, random_state=42).sort_values('Seconds')
                     st.caption(f"📊 Usando amostra de 2.000 pontos (total: {len(df_fc):,})")
@@ -984,7 +983,32 @@ if uploaded_files:
                 fig_fc_acc.update_yaxes(title_text="Aceleração (m/s²)", secondary_y=True)
                 st.plotly_chart(fig_fc_acc, use_container_width=True)
                 
-                # Zonas de intensidade
+                if 'Odometer' in df_fc_plot.columns:
+                    st.markdown("### 📈 Distância Acumulada vs FC")
+                    
+                    df_fc_plot['Distancia_Acumulada'] = df_fc_plot['Odometer'] - df_fc_plot['Odometer'].min()
+                    
+                    fig_dist_fc = make_subplots(specs=[[{"secondary_y": True}]])
+                    
+                    fig_dist_fc.add_trace(
+                        go.Scatter(x=df_fc_plot['Horario'], y=df_fc_plot['Distancia_Acumulada'], mode='lines', name='Distância',
+                                  line=dict(color='green', width=1.5)),
+                        secondary_y=False
+                    )
+                    
+                    fig_dist_fc.add_trace(
+                        go.Scatter(x=df_fc_plot['Horario'], y=df_fc_plot['HeartRate'], mode='lines', name='FC',
+                                  line=dict(color='red', width=1.5)),
+                        secondary_y=True
+                    )
+                    
+                    fig_dist_fc.update_layout(title=f"Distância vs FC - {periodo_selecionado_fc}", height=400)
+                    fig_dist_fc.update_yaxes(title_text="Distância (m)", secondary_y=False)
+                    fig_dist_fc.update_yaxes(title_text="FC (bpm)", secondary_y=True)
+                    st.plotly_chart(fig_dist_fc, use_container_width=True)
+                
+                st.markdown("### 📊 Zonas de Intensidade Cardíaca")
+                
                 df_fc_plot['Zona_FC'] = pd.cut(df_fc_plot['HeartRate'], 
                                           bins=[0, fc_max*0.6, fc_max*0.75, fc_max*0.9, fc_max],
                                           labels=['Recuperação', 'Aeróbica', 'Anaeróbica', 'Máximo'])
@@ -996,14 +1020,15 @@ if uploaded_files:
                 fig_pie = px.pie(zona_stats, values='Contagem', names='Zona_FC', title="Distribuição por Zona de Intensidade")
                 st.plotly_chart(fig_pie, use_container_width=True)
             
-            # TAB 5: COMPARAÇÃO ESPORTIVA (simplificada)
+            # TAB 5: COMPARAÇÃO ESPORTIVA
             with tab5:
                 st.subheader("Comparação Esportiva entre Períodos")
                 
                 var_selecionadas = st.multiselect(
-                    "Selecione as variáveis",
+                    "Selecione as variáveis para comparação",
                     options=["Velocidade Média (km/h)", "Velocidade Máxima (km/h)", 
-                             "Frequência Cardíaca Média (bpm)", "Frequência Cardíaca Máxima (bpm)", "Distância Total (m)"],
+                             "Frequência Cardíaca Média (bpm)", "Frequência Cardíaca Máxima (bpm)", 
+                             "Distância Total (m)", "Tempo Total (min)"],
                     default=["Velocidade Média (km/h)", "Distância Total (m)"]
                 )
                 
@@ -1023,19 +1048,51 @@ if uploaded_files:
                             elif var == "Distância Total (m)":
                                 if 'Odometer' in df_periodo.columns:
                                     row[var] = df_periodo['Odometer'].max() - df_periodo['Odometer'].min()
+                            elif var == "Tempo Total (min)":
+                                if len(df_periodo) > 1:
+                                    sample_rate = df_periodo['Seconds'].diff().median()
+                                    row[var] = (len(df_periodo) * sample_rate) / 60
                         comparacao_data.append(row)
                     
                     df_comp = pd.DataFrame(comparacao_data)
                     st.dataframe(df_comp.round(1), use_container_width=True)
                     
-                    # Gráfico de barras
                     for var in var_selecionadas:
-                        fig_bar = px.bar(df_comp, x='Período', y=var, title=var, text_auto='.1f')
-                        fig_bar.update_layout(height=400)
+                        fig_bar = px.bar(df_comp, x='Período', y=var, title=var, text_auto='.1f', color='Período')
+                        fig_bar.update_layout(height=400, showlegend=False)
                         st.plotly_chart(fig_bar, use_container_width=True)
                     
+                    # Radar chart
+                    if len(df_comp) >= 2:
+                        st.markdown("### 🎯 Perfil de Desempenho (Radar)")
+                        
+                        df_radar = df_comp.copy()
+                        for var in var_selecionadas:
+                            max_val = df_radar[var].max()
+                            if max_val > 0:
+                                df_radar[var + " (%)"] = (df_radar[var] / max_val * 100).round(1)
+                        
+                        fig_radar = go.Figure()
+                        for _, row in df_radar.iterrows():
+                            valores = [row[var + " (%)"] for var in var_selecionadas]
+                            fig_radar.add_trace(go.Scatterpolar(
+                                r=valores,
+                                theta=var_selecionadas,
+                                fill='toself',
+                                name=row['Período'],
+                                line=dict(width=2)
+                            ))
+                        
+                        fig_radar.update_layout(
+                            polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+                            title="Perfil de Desempenho Normalizado (0-100%)",
+                            height=500,
+                            showlegend=True
+                        )
+                        st.plotly_chart(fig_radar, use_container_width=True)
+                    
                     csv_comp = df_comp.to_csv(index=False)
-                    st.download_button("📥 Exportar", csv_comp, "comparacao.csv")
+                    st.download_button("📥 Exportar comparação", csv_comp, "comparacao_periodos.csv")
         
         else:
             st.error("❌ Nenhum arquivo válido processado.")
@@ -1047,18 +1104,19 @@ else:
     ### 🚀 Como usar:
     1. **Faça upload** de arquivos CSV na barra lateral
     2. **Selecione o estádio** ou use detecção automática
-    3. **Escolha os atletas** para análise
-    4. **Configure os períodos** de análise
-    5. **Explore as 5 abas** de análise
+    3. **Configure os períodos** de análise (horários e duração)
+    4. **Escolha os atletas** e períodos
+    5. **Clique em PROCESSAR ANÁLISE** para iniciar
     
     ### ✨ Funcionalidades:
     - 🏟️ **Campo retangular** com dimensões oficiais (105m x 68m)
-    - 📐 **Divisões iguais em metros**
-    - ⏱️ **Períodos personalizados** com horários e duração
-    - ⚡ **Perfil Aceleração-Velocidade (ASP)**
-    - ❤️ **Análise de Performance Cardíaca**
-    - 📊 **Comparação Esportiva**
+    - 📐 **Divisões iguais em metros** - zonas com tamanhos exatos
+    - ⏱️ **Períodos personalizados** com horários e duração (prova real)
+    - ⚡ **Perfil Aceleração-Velocidade (ASP)** com eixos invertidos
+    - ❤️ **Análise de Performance Cardíaca** com zonas de intensidade
+    - 📊 **Comparação Esportiva** com radar, correlação e variação percentual
+    - 🎯 **Cards de métricas** específicas do período selecionado
     
     ---
-    **👈 Faça upload para começar!**
+    **👈 Configure os filtros e clique em PROCESSAR ANÁLISE!**
     """)
