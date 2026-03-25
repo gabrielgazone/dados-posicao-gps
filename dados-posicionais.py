@@ -340,6 +340,17 @@ init_database()
 st.sidebar.header("📁 Upload de Arquivos")
 uploaded_files = st.sidebar.file_uploader("Escolha os arquivos CSV", type=['csv'], accept_multiple_files=True)
 
+# ==================== CARREGAMENTO INICIAL PARA PROVA REAL ====================
+# Carregar o primeiro arquivo para obter o horário de referência IMEDIATAMENTE
+if uploaded_files and 'reference_datetime_global' not in st.session_state:
+    with st.spinner("Carregando referência de horário..."):
+        for file in uploaded_files:
+            df, atleta, periodo, start_datetime = load_data(file)
+            if df is not None and start_datetime is not None:
+                st.session_state.reference_datetime_global = start_datetime
+                st.session_state.first_atleta = atleta
+                break
+
 # ==================== SIDEBAR - SELEÇÃO DE ESTÁDIO ====================
 
 st.sidebar.markdown("---")
@@ -435,11 +446,6 @@ st.sidebar.subheader("⏱️ Divisão Temporal do Jogo")
 if 'periodos' not in st.session_state:
     st.session_state.periodos = [{"nome": "1º Tempo", "inicio": 0, "fim": 45}]
 
-# Função callback para atualizar a prova real
-def atualizar_prova_real():
-    """Callback para atualizar a exibição da prova real"""
-    pass
-
 if st.sidebar.button("➕ Adicionar período", use_container_width=True):
     st.session_state.periodos.append({"nome": f"Período {len(st.session_state.periodos) + 1}", "inicio": 0, "fim": 45})
     st.rerun()
@@ -450,13 +456,10 @@ def get_horario_formatado(minutos, start_dt):
         return seconds_to_time_str(segundos, start_dt)
     return f"{int(minutos)}:00"
 
-# Função para obter o horário de referência (se já houver arquivo carregado)
-def get_reference_datetime():
-    if 'reference_datetime_temp' in st.session_state:
-        return st.session_state.reference_datetime_temp
-    return None
+# Obter horário de referência do session state (já carregado)
+reference_dt = st.session_state.get('reference_datetime_global', None)
 
-# Exibir períodos com prova real (mesmo antes do processamento)
+# Exibir períodos com prova real (AGORA FUNCIONA!)
 st.sidebar.markdown("### Períodos configurados:")
 
 periodos_para_remover = []
@@ -478,8 +481,7 @@ for i, periodo in enumerate(st.session_state.periodos):
         
         st.session_state.periodos[i] = {"nome": novo_nome, "inicio": novo_inicio, "fim": novo_fim}
         
-        # PROVA REAL - Exibe horário e duração ANTES do processamento
-        reference_dt = get_reference_datetime()
+        # PROVA REAL - Exibe horário e duração (AGORA COM CALLBACK FUNCIONANDO)
         if reference_dt:
             inicio_horario = get_horario_formatado(novo_inicio, reference_dt)
             fim_horario = get_horario_formatado(novo_fim, reference_dt)
@@ -533,7 +535,6 @@ if uploaded_files and processar:
             selected_start_datetimes = [all_start_datetimes[i] for i in selected_indices]
             
             reference_datetime = selected_start_datetimes[0] if selected_start_datetimes[0] is not None else None
-            st.session_state.reference_datetime_temp = reference_datetime
             
             df_calibracao = selected_data[0]
             
