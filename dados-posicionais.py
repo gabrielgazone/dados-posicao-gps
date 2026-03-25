@@ -103,7 +103,7 @@ def desenhar_campo_futebol():
     
     # 5. Grandes áreas (16.5m da linha de fundo)
     grande_area_prof = 16.5
-    grande_area_larg = 40.32  # 16.5 + 16.5 + 7.32
+    grande_area_larg = 40.32
     
     # Grande área direita
     shapes.append(go.layout.Shape(
@@ -127,7 +127,7 @@ def desenhar_campo_futebol():
     
     # 6. Pequenas áreas (5.5m da linha de fundo)
     pequena_area_prof = 5.5
-    pequena_area_larg = 18.32  # 5.5 + 5.5 + 7.32
+    pequena_area_larg = 18.32
     
     # Pequena área direita
     shapes.append(go.layout.Shape(
@@ -151,7 +151,6 @@ def desenhar_campo_futebol():
     
     # 7. Marcas de pênalti (11m da linha de fundo)
     penalty_dist = 11
-    # Pênalti direita
     shapes.append(go.layout.Shape(
         type="circle",
         x0=X_MAX - penalty_dist - 0.3, x1=X_MAX - penalty_dist + 0.3,
@@ -160,7 +159,6 @@ def desenhar_campo_futebol():
         fillcolor="white",
         layer="below"
     ))
-    # Pênalti esquerda
     shapes.append(go.layout.Shape(
         type="circle",
         x0=X_MIN + penalty_dist - 0.3, x1=X_MIN + penalty_dist + 0.3,
@@ -171,6 +169,36 @@ def desenhar_campo_futebol():
     ))
     
     return shapes
+
+def desenhar_linhas_divisorias(num_linhas, num_colunas):
+    """
+    Desenha as linhas divisórias das zonas com espaçamento igual em metros
+    """
+    shapes = []
+    
+    # Linhas horizontais (divisão do comprimento)
+    linhas_bins = np.linspace(X_MIN, X_MAX, num_linhas + 1)
+    for linha in linhas_bins[1:-1]:
+        shapes.append(go.layout.Shape(
+            type="line",
+            x0=linha, x1=linha,
+            y0=Y_MIN, y1=Y_MAX,
+            line=dict(color="rgba(255,255,255,0.7)", width=2, dash="dash"),
+            layer="above"
+        ))
+    
+    # Linhas verticais (divisão da largura)
+    colunas_bins = np.linspace(Y_MIN, Y_MAX, num_colunas + 1)
+    for coluna in colunas_bins[1:-1]:
+        shapes.append(go.layout.Shape(
+            type="line",
+            x0=X_MIN, x1=X_MAX,
+            y0=coluna, y1=coluna,
+            line=dict(color="rgba(255,255,255,0.7)", width=2, dash="dash"),
+            layer="above"
+        ))
+    
+    return shapes, linhas_bins, colunas_bins
 
 # ==================== BANCO DE DADOS DE ESTÁDIOS ====================
 
@@ -301,7 +329,7 @@ def geocodificar_endereco(endereco):
                 display_name = dados[0].get('display_name', endereco)
                 return lat, lon, display_name
         return None, None, None
-    except Exception as e:
+    except Exception:
         return None, None, None
 
 # ==================== FUNÇÕES AUXILIARES ====================
@@ -516,6 +544,54 @@ else:
     st.sidebar.warning("Nenhum estádio cadastrado")
     selecao_estadio = "Detectar automaticamente"
 
+# ==================== SIDEBAR - DIVISÃO TEMPORAL ====================
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("⏱️ Divisão Temporal do Jogo")
+
+# Inicializar períodos no session state
+if 'periodos' not in st.session_state:
+    st.session_state.periodos = [{"nome": "1º Tempo", "inicio": 0, "fim": 45}]
+
+# Botão para adicionar período
+if st.sidebar.button("➕ Adicionar período", use_container_width=True):
+    novo_id = len(st.session_state.periodos) + 1
+    st.session_state.periodos.append({"nome": f"Período {novo_id}", "inicio": 0, "fim": 45})
+    st.rerun()
+
+# Exibir e editar períodos
+periodos_para_remover = []
+for i, periodo in enumerate(st.session_state.periodos):
+    with st.sidebar.expander(f"📅 {periodo['nome']}", expanded=(i == 0)):
+        col_nome, col_remover = st.columns([3, 1])
+        with col_nome:
+            novo_nome = st.text_input("Nome", value=periodo['nome'], key=f"nome_{i}")
+        with col_remover:
+            if i > 0:  # Não permitir remover o primeiro período
+                if st.button("🗑️", key=f"remover_{i}"):
+                    periodos_para_remover.append(i)
+        
+        col_ini, col_fim = st.columns(2)
+        with col_ini:
+            novo_inicio = st.number_input("Início (min)", value=float(periodo['inicio']), step=1.0, key=f"inicio_{i}")
+        with col_fim:
+            novo_fim = st.number_input("Fim (min)", value=float(periodo['fim']), step=1.0, key=f"fim_{i}")
+        
+        st.session_state.periodos[i] = {"nome": novo_nome, "inicio": novo_inicio, "fim": novo_fim}
+
+# Remover períodos marcados
+for i in sorted(periodos_para_remover, reverse=True):
+    st.session_state.periodos.pop(i)
+    st.rerun()
+
+# Selecionar períodos para análise
+periodos_selecionados = st.sidebar.multiselect(
+    "Selecionar períodos para análise",
+    options=range(len(st.session_state.periodos)),
+    format_func=lambda x: st.session_state.periodos[x]['nome'],
+    default=list(range(len(st.session_state.periodos)))
+)
+
 # ==================== PROCESSAMENTO PRINCIPAL ====================
 
 if uploaded_files:
@@ -567,7 +643,7 @@ if uploaded_files:
             st.sidebar.info(f"🔍 Estádio detectado automaticamente")
         
         st.sidebar.markdown("---")
-        st.sidebar.subheader("⏱️ Filtro Temporal")
+        st.sidebar.subheader("⏱️ Filtro Temporal Global")
         
         min_time = float('inf')
         max_time = 0
@@ -575,15 +651,20 @@ if uploaded_files:
             min_time = min(min_time, df['Seconds'].min())
             max_time = max(max_time, df['Seconds'].max())
         
+        min_time_min = min_time / 60
+        max_time_min = max_time / 60
+        
         if reference_datetime:
             selected_range = st.sidebar.slider(
-                "Intervalo de tempo",
-                min_value=float(min_time),
-                max_value=float(max_time),
-                value=(float(min_time), float(max_time)),
-                step=1.0
+                "Intervalo de tempo (minutos)",
+                min_value=float(min_time_min),
+                max_value=float(max_time_min),
+                value=(float(min_time_min), float(max_time_min)),
+                step=0.5
             )
-            start_time, end_time = selected_range
+            start_time_min, end_time_min = selected_range
+            start_time = start_time_min * 60
+            end_time = end_time_min * 60
             start_horario = seconds_to_time_str(start_time, reference_datetime)
             end_horario = seconds_to_time_str(end_time, reference_datetime)
         else:
@@ -610,23 +691,34 @@ if uploaded_files:
         st.sidebar.subheader("🎨 Opções")
         show_field = st.sidebar.checkbox("Mostrar campo", value=True)
         
-        dfs_filtered = []
-        for df, atleta, periodo, start_dt in zip(selected_data, selected_atletas, selected_periodos, selected_start_datetimes):
-            time_filter = (df['Seconds'] >= start_time) & (df['Seconds'] <= end_time)
-            speed_filter = (df['Velocity'] >= speed_range[0]) & (df['Velocity'] <= speed_range[1])
-            df_filtered = df[time_filter & speed_filter].copy()
-            df_filtered['Atleta'] = atleta
-            df_filtered['Periodo'] = periodo
-            df_filtered['start_datetime'] = start_dt
-            dfs_filtered.append(df_filtered)
+        # Filtrar dados por período selecionado
+        dfs_por_periodo = {}
+        for periodo_idx in periodos_selecionados:
+            periodo = st.session_state.periodos[periodo_idx]
+            periodo_inicio = periodo['inicio'] * 60
+            periodo_fim = periodo['fim'] * 60
+            
+            dfs_periodo = []
+            for df, atleta, periodo_nome, start_dt in zip(selected_data, selected_atletas, selected_periodos, selected_start_datetimes):
+                time_filter = (df['Seconds'] >= max(start_time, periodo_inicio)) & (df['Seconds'] <= min(end_time, periodo_fim))
+                speed_filter = (df['Velocity'] >= speed_range[0]) & (df['Velocity'] <= speed_range[1])
+                df_filtered = df[time_filter & speed_filter].copy()
+                df_filtered['Atleta'] = atleta
+                df_filtered['Periodo'] = periodo_nome
+                df_filtered['Periodo_Analise'] = periodo['nome']
+                df_filtered['start_datetime'] = start_dt
+                dfs_periodo.append(df_filtered)
+            
+            if dfs_periodo:
+                dfs_por_periodo[periodo['nome']] = pd.concat(dfs_periodo, ignore_index=True)
         
-        df_combined = pd.concat(dfs_filtered, ignore_index=True) if dfs_filtered else pd.DataFrame()
-        
-        if len(df_combined) == 0:
-            st.warning("⚠️ Nenhum dado encontrado.")
+        if not dfs_por_periodo:
+            st.warning("⚠️ Nenhum dado encontrado nos períodos selecionados.")
             st.stop()
         
-        df_main = dfs_filtered[0]
+        # Métricas principais (primeiro período)
+        primeiro_periodo = list(dfs_por_periodo.keys())[0]
+        df_main = dfs_por_periodo[primeiro_periodo]
         atleta_main = selected_atletas[0]
         start_dt_main = selected_start_datetimes[0]
         
@@ -637,23 +729,28 @@ if uploaded_files:
         with col_f2:
             st.info(f"⚡ {speed_range[0]:.1f} - {speed_range[1]:.1f} km/h")
         with col_f3:
-            st.info(f"📊 {len(df_combined):,} registros")
+            total_registros = sum(len(df) for df in dfs_por_periodo.values())
+            st.info(f"📊 {total_registros:,} registros")
         with col_f4:
             st.info(f"🏟️ {nome_estadio}")
         
-        st.markdown("### 📈 Métricas de Desempenho")
-        col1, col2, col3, col4, col5 = st.columns(5)
-        with col1:
-            dist = df_main['Odometer'].max() if 'Odometer' in df_main.columns else 0
-            st.metric("Distância", f"{dist:.0f} m")
-        with col2:
-            st.metric("Vel Máx", f"{df_main['Velocity'].max():.1f} km/h")
-        with col3:
-            st.metric("Vel Média", f"{df_main['Velocity'].mean():.1f} km/h")
-        with col4:
-            st.metric("FC Média", f"{df_main['HeartRate'].mean():.0f} bpm")
-        with col5:
-            st.metric("FC Máx", f"{df_main['HeartRate'].max():.0f} bpm")
+        st.markdown("### 📈 Métricas de Desempenho por Período")
+        
+        # Criar métricas por período
+        for periodo_nome, df_periodo in dfs_por_periodo.items():
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                dist = df_periodo['Odometer'].max() - df_periodo['Odometer'].min() if 'Odometer' in df_periodo.columns else 0
+                st.metric(f"{periodo_nome} - Distância", f"{dist:.0f} m")
+            with col2:
+                st.metric(f"{periodo_nome} - Vel Máx", f"{df_periodo['Velocity'].max():.1f} km/h")
+            with col3:
+                st.metric(f"{periodo_nome} - Vel Média", f"{df_periodo['Velocity'].mean():.1f} km/h")
+            with col4:
+                st.metric(f"{periodo_nome} - FC Média", f"{df_periodo['HeartRate'].mean():.0f} bpm")
+            with col5:
+                st.metric(f"{periodo_nome} - FC Máx", f"{df_periodo['HeartRate'].max():.0f} bpm")
+            st.markdown("---")
         
         # ==================== ABAS ====================
         tab1, tab2 = st.tabs(["🗺️ Mapa do Percurso", "📐 Análise Tática por Zonas"])
@@ -662,16 +759,13 @@ if uploaded_files:
         with tab1:
             st.subheader("Percurso no Campo de Futebol")
             
-            if len(selected_atletas) > 1:
-                atleta_mapa = st.selectbox("Atleta", selected_atletas, key="mapa_select")
-                idx_mapa = selected_atletas.index(atleta_mapa)
-                df_mapa = dfs_filtered[idx_mapa].copy()
-                start_dt_mapa = selected_start_datetimes[idx_mapa]
-                atleta_mapa_nome = atleta_mapa
-            else:
-                df_mapa = df_main.copy()
-                start_dt_mapa = start_dt_main
-                atleta_mapa_nome = atleta_main
+            # Selecionar período para visualização
+            periodo_selecionado_mapa = st.selectbox(
+                "Selecionar período para visualizar",
+                options=list(dfs_por_periodo.keys()),
+                key="mapa_periodo_select"
+            )
+            df_mapa = dfs_por_periodo[periodo_selecionado_mapa]
             
             if bounds_estadio:
                 center_lat, center_lon = centro_estadio
@@ -690,7 +784,7 @@ if uploaded_files:
             
             hover_texts = []
             for _, row in df_mapa.iterrows():
-                time_str = seconds_to_time_str(row['Seconds'], start_dt_mapa)
+                time_str = seconds_to_time_str(row['Seconds'], row['start_datetime'])
                 hover_texts.append(f"<b>{time_str}</b><br>Vel: {row['Velocity']:.1f} km/h<br>FC: {row['HeartRate']:.0f} bpm")
             
             fig_map.add_trace(go.Scattermapbox(
@@ -713,7 +807,7 @@ if uploaded_files:
             fig_map.update_layout(
                 mapbox=dict(style="open-street-map", center=dict(lat=center_lat, lon=center_lon), zoom=zoom),
                 height=700, margin=dict(l=0, r=0, t=30, b=0),
-                title=f"Trajetória de {atleta_mapa_nome} - {nome_estadio}"
+                title=f"Trajetória de {selected_atletas[0]} - {periodo_selecionado_mapa} - {nome_estadio}"
             )
             st.plotly_chart(fig_map, use_container_width=True)
         
@@ -722,16 +816,14 @@ if uploaded_files:
             st.subheader("Análise Tática - Posicionamento no Campo")
             st.markdown(f"Campo com dimensões oficiais: **{CAMPO_COMPRIMENTO}m x {CAMPO_LARGURA}m**")
             
-            if len(selected_atletas) > 1:
-                atleta_tat = st.selectbox("Atleta", selected_atletas, key="tat_select")
-                idx_tat = selected_atletas.index(atleta_tat)
-                df_tat = dfs_filtered[idx_tat].copy()
-                start_dt_tat = selected_start_datetimes[idx_tat]
-                atleta_tat_nome = atleta_tat
-            else:
-                df_tat = df_main.copy()
-                start_dt_tat = start_dt_main
-                atleta_tat_nome = atleta_main
+            # Selecionar período para análise
+            periodo_selecionado_tatica = st.selectbox(
+                "Selecionar período para análise tática",
+                options=list(dfs_por_periodo.keys()),
+                key="tatica_periodo_select"
+            )
+            df_tat = dfs_por_periodo[periodo_selecionado_tatica]
+            start_dt_tat = df_tat['start_datetime'].iloc[0] if len(df_tat) > 0 else None
             
             # Converter coordenadas GPS para coordenadas do campo
             if bounds_estadio:
@@ -745,10 +837,10 @@ if uploaded_files:
                 df_tat['campo_y'] = campo_y
                 st.success(f"✅ Usando limites do {nome_estadio} para conversão")
             else:
-                st.warning("⚠️ Limites do estádio não definidos. Use a detecção automática ou cadastre um estádio.")
+                st.warning("⚠️ Limites do estádio não definidos.")
                 st.stop()
             
-            # Configuração da divisão em zonas (EM METROS - DIVISÕES IGUAIS)
+            # Configuração da divisão em zonas
             st.markdown("### 🧩 Configuração da Divisão do Campo")
             st.markdown("As divisões são feitas em **metros**, garantindo que cada zona tenha o mesmo tamanho.")
             
@@ -761,7 +853,6 @@ if uploaded_files:
                     value=3,
                     help="Divide o campo no sentido do comprimento (de um gol ao outro)"
                 )
-                # Calcular o tamanho de cada linha em metros
                 tamanho_linha = CAMPO_COMPRIMENTO / num_linhas
                 st.info(f"📏 Cada linha terá **{tamanho_linha:.1f}m** de comprimento")
             
@@ -773,51 +864,19 @@ if uploaded_files:
                     value=3,
                     help="Divide o campo no sentido da largura (de uma lateral à outra)"
                 )
-                # Calcular o tamanho de cada coluna em metros
                 tamanho_coluna = CAMPO_LARGURA / num_colunas
                 st.info(f"📏 Cada coluna terá **{tamanho_coluna:.1f}m** de largura")
             
-            # Criar bins para as zonas baseado nas dimensões reais do campo (EM METROS)
-            # Linhas: divisão no eixo X (comprimento) - do gol esquerdo ao gol direito
+            # Criar bins para as zonas (DIVISÕES IGUAIS EM METROS)
             linhas_bins = np.linspace(X_MIN, X_MAX, num_linhas + 1)
-            
-            # Colunas: divisão no eixo Y (largura) - da lateral esquerda à direita
             colunas_bins = np.linspace(Y_MIN, Y_MAX, num_colunas + 1)
             
-            # Atribuir zona para cada ponto (usando campo_x e campo_y)
+            # Atribuir zona para cada ponto
             df_tat['Zona_Linha'] = pd.cut(df_tat['campo_x'], bins=linhas_bins, labels=[f'L{i+1}' for i in range(num_linhas)], include_lowest=True)
             df_tat['Zona_Coluna'] = pd.cut(df_tat['campo_y'], bins=colunas_bins, labels=[f'C{i+1}' for i in range(num_colunas)], include_lowest=True)
             df_tat['Zona'] = df_tat['Zona_Linha'].astype(str) + '-' + df_tat['Zona_Coluna'].astype(str)
             
             # Métricas por zona
-            st.markdown("### 📊 Demanda Física por Zona")
-            
-            # Explicação científica da intensidade
-            with st.expander("📖 **O que é o índice de Intensidade?**"):
-                st.markdown("""
-                O **Índice de Intensidade** é uma métrica que combina a **velocidade média** e o **tempo de permanência** em cada zona, 
-                normalizada para uma escala de 0 a 100%.
-                
-                **Fórmula:**  
-                `Intensidade = (Velocidade_Média × Contagem) / Σ(Velocidade_Média × Contagem) × 100`
-                
-                **Interpretação:**  
-                - **Valores altos (>70%)** : Zonas onde o atleta desenvolveu maior esforço físico
-                - **Valores médios (30-70%)** : Zonas de atividade moderada
-                - **Valores baixos (<30%)** : Zonas de recuperação ou baixa atividade
-                
-                **Validação Científica:**  
-                Esta métrica é baseada no conceito de **carga de treino** (Training Load) proposto por Foster et al. (2001) e 
-                adaptado para análise de posicionamento em campo. A combinação de tempo e velocidade é amplamente utilizada 
-                na literatura de análise de desempenho esportivo (Carling et al., 2008; Bradley et al., 2009).
-                
-                *Referências:*  
-                - Foster, C., et al. (2001). A new approach to monitoring exercise training. *Journal of Strength and Conditioning Research*
-                - Carling, C., et al. (2008). Analysis of physical performance in elite soccer. *Journal of Sports Sciences*
-                - Bradley, P.S., et al. (2009). High-intensity running in English FA Premier League soccer matches. *Journal of Sports Sciences*
-                """)
-            
-            # Agrupar e calcular métricas
             zona_metrics = df_tat.groupby('Zona', observed=True).agg({
                 'Seconds': 'count',
                 'Velocity': ['mean', 'max'],
@@ -856,33 +915,14 @@ if uploaded_files:
             zona_metrics['% Acumulada'] = zona_metrics['% Frequência'].cumsum().round(1)
             zona_metrics = zona_metrics.sort_index()
             
-            # Calcular intensidade (baseada na literatura científica)
-            # Intensidade = (Velocidade_Média * Contagem) / Σ(Velocidade_Média * Contagem) * 100
+            # Calcular intensidade
             total_vel_peso = (zona_metrics['Vel_Média'] * zona_metrics['Contagem']).sum()
             if total_vel_peso > 0:
                 zona_metrics['Intensidade (%)'] = ((zona_metrics['Vel_Média'] * zona_metrics['Contagem']) / total_vel_peso * 100).round(1)
             else:
                 zona_metrics['Intensidade (%)'] = 0
             
-            # Reordenar colunas para melhor visualização
-            zona_metrics = zona_metrics[['Contagem', '% Frequência', '% Acumulada', 'Tempo(s)', 'Tempo(min)', 'Distância(m)', 
-                                          'Vel_Média', 'Vel_Máx', 'FC_Média', 'FC_Máx', 'Intensidade (%)']]
-            
-            st.dataframe(zona_metrics.style.format({
-                'Contagem': '{:.0f}',
-                '% Frequência': '{:.1f}%',
-                '% Acumulada': '{:.1f}%',
-                'Tempo(s)': '{:.1f}',
-                'Tempo(min)': '{:.1f}',
-                'Distância(m)': '{:.0f}',
-                'Vel_Média': '{:.1f}',
-                'Vel_Máx': '{:.1f}',
-                'FC_Média': '{:.0f}',
-                'FC_Máx': '{:.0f}',
-                'Intensidade (%)': '{:.1f}%'
-            }), use_container_width=True)
-            
-            # Visualização do campo
+            # Visualização do campo (ANTES DA TABELA)
             st.markdown("### 🗺️ Visualização Tática")
             
             viz_type = st.radio(
@@ -899,16 +939,13 @@ if uploaded_files:
             for shape in shapes:
                 fig_tat.add_shape(shape)
             
-            # Adicionar linhas divisórias das zonas (EM METROS)
-            for linha in linhas_bins[1:-1]:
-                fig_tat.add_shape(
-                    type="line",
-                    x0=linha, x1=linha,
-                    y0=Y_MIN, y1=Y_MAX,
-                    line=dict(color="rgba(255,255,255,0.6)", width=2, dash="dash"),
-                    layer="above"
-                )
-                # Adicionar texto com a distância
+            # Desenhar linhas divisorias (IGUAIS EM METROS)
+            linhas_div, linhas_bins_plot, colunas_bins_plot = desenhar_linhas_divisorias(num_linhas, num_colunas)
+            for shape in linhas_div:
+                fig_tat.add_shape(shape)
+            
+            # Adicionar marcações de distância nos eixos
+            for linha in linhas_bins_plot[1:-1]:
                 fig_tat.add_annotation(
                     x=linha, y=Y_MAX + 1.5,
                     text=f"{linha:.0f}m",
@@ -917,15 +954,7 @@ if uploaded_files:
                     bgcolor="rgba(0,0,0,0.5)"
                 )
             
-            for coluna in colunas_bins[1:-1]:
-                fig_tat.add_shape(
-                    type="line",
-                    x0=X_MIN, x1=X_MAX,
-                    y0=coluna, y1=coluna,
-                    line=dict(color="rgba(255,255,255,0.6)", width=2, dash="dash"),
-                    layer="above"
-                )
-                # Adicionar texto com a distância
+            for coluna in colunas_bins_plot[1:-1]:
                 fig_tat.add_annotation(
                     x=X_MIN - 2, y=coluna,
                     text=f"{coluna:.0f}m",
@@ -933,19 +962,6 @@ if uploaded_files:
                     font=dict(color="white", size=10),
                     bgcolor="rgba(0,0,0,0.5)"
                 )
-            
-            # Preparar dados para anotações nos quadrantes
-            if viz_type in ["Mapa de calor de tempo", "Mapa de calor de velocidade"]:
-                # Criar matriz de dados para as anotações
-                annotation_data = np.zeros((num_linhas, num_colunas))
-                for i in range(num_linhas):
-                    for j in range(num_colunas):
-                        zona = f'L{i+1}-C{j+1}'
-                        if zona in zona_metrics.index:
-                            if viz_type == "Mapa de calor de tempo":
-                                annotation_data[i, j] = zona_metrics.loc[zona, '% Frequência']
-                            else:
-                                annotation_data[i, j] = zona_metrics.loc[zona, 'Vel_Média']
             
             # Plotar baseado no tipo de visualização
             if viz_type == "Trajetória com cores por zona":
@@ -956,8 +972,8 @@ if uploaded_files:
                         mode='markers',
                         name=f'Zona {zona}',
                         marker=dict(size=5, color=cores[i % len(cores)], opacity=0.7),
-                        text=[f"Zona: {zona}<br>Horário: {seconds_to_time_str(t, start_dt_tat)}<br>Vel: {v:.1f} km/h<br>FC: {fc:.0f} bpm<br>Pos: ({x:.1f}m, {y:.1f}m)"
-                              for t, v, fc, x, y in zip(group['Seconds'], group['Velocity'], group['HeartRate'], group['campo_x'], group['campo_y'])],
+                        text=[f"Zona: {zona}<br>Horário: {seconds_to_time_str(t, start_dt_tat)}<br>Vel: {v:.1f} km/h<br>FC: {fc:.0f} bpm"
+                              for t, v, fc in zip(group['Seconds'], group['Velocity'], group['HeartRate'])],
                         hoverinfo='text'
                     ))
             
@@ -971,8 +987,8 @@ if uploaded_files:
                             heatmap_data[i, j] = zona_metrics.loc[zona, 'Contagem']
                 
                 fig_tat.add_trace(go.Heatmap(
-                    x=linhas_bins,
-                    y=colunas_bins,
+                    x=linhas_bins_plot,
+                    y=colunas_bins_plot,
                     z=heatmap_data.T,
                     colorscale='Hot',
                     opacity=0.7,
@@ -987,8 +1003,8 @@ if uploaded_files:
                         zona = f'L{i+1}-C{j+1}'
                         if zona in zona_metrics.index:
                             pct = zona_metrics.loc[zona, '% Frequência']
-                            centro_x = (linhas_bins[i] + linhas_bins[i+1]) / 2
-                            centro_y = (colunas_bins[j] + colunas_bins[j+1]) / 2
+                            centro_x = (linhas_bins_plot[i] + linhas_bins_plot[i+1]) / 2
+                            centro_y = (colunas_bins_plot[j] + colunas_bins_plot[j+1]) / 2
                             
                             fig_tat.add_annotation(
                                 x=centro_x, y=centro_y,
@@ -1008,18 +1024,8 @@ if uploaded_files:
                     name='Trajetória',
                     hoverinfo='skip'
                 ))
-                
-                # Tabela resumo das porcentagens
-                st.markdown("### 📊 Distribuição de Tempo por Zona")
-                pct_table = zona_metrics[['% Frequência', '% Acumulada']].reset_index()
-                pct_table.columns = ['Zona', '% do Tempo', '% Acumulada']
-                st.dataframe(pct_table.style.format({
-                    '% do Tempo': '{:.1f}%',
-                    '% Acumulada': '{:.1f}%'
-                }), use_container_width=True)
             
             else:  # Mapa de calor de velocidade
-                # Criar matriz de calor
                 heatmap_data = np.zeros((num_linhas, num_colunas))
                 for i in range(num_linhas):
                     for j in range(num_colunas):
@@ -1028,8 +1034,8 @@ if uploaded_files:
                             heatmap_data[i, j] = zona_metrics.loc[zona, 'Vel_Média']
                 
                 fig_tat.add_trace(go.Heatmap(
-                    x=linhas_bins,
-                    y=colunas_bins,
+                    x=linhas_bins_plot,
+                    y=colunas_bins_plot,
                     z=heatmap_data.T,
                     colorscale='Viridis',
                     opacity=0.7,
@@ -1038,14 +1044,14 @@ if uploaded_files:
                     showscale=True
                 ))
                 
-                # Adicionar anotações com a velocidade média em cada quadrante
+                # Adicionar anotações com a velocidade média
                 for i in range(num_linhas):
                     for j in range(num_colunas):
                         zona = f'L{i+1}-C{j+1}'
                         if zona in zona_metrics.index:
                             vel = zona_metrics.loc[zona, 'Vel_Média']
-                            centro_x = (linhas_bins[i] + linhas_bins[i+1]) / 2
-                            centro_y = (colunas_bins[j] + colunas_bins[j+1]) / 2
+                            centro_x = (linhas_bins_plot[i] + linhas_bins_plot[i+1]) / 2
+                            centro_y = (colunas_bins_plot[j] + colunas_bins_plot[j+1]) / 2
                             
                             fig_tat.add_annotation(
                                 x=centro_x, y=centro_y,
@@ -1065,19 +1071,10 @@ if uploaded_files:
                     name='Trajetória',
                     hoverinfo='skip'
                 ))
-                
-                # Tabela resumo das velocidades
-                st.markdown("### 📊 Velocidade Média por Zona")
-                vel_table = zona_metrics[['Vel_Média', 'Vel_Máx']].reset_index()
-                vel_table.columns = ['Zona', 'Velocidade Média (km/h)', 'Velocidade Máxima (km/h)']
-                st.dataframe(vel_table.style.format({
-                    'Velocidade Média (km/h)': '{:.1f}',
-                    'Velocidade Máxima (km/h)': '{:.1f}'
-                }), use_container_width=True)
             
             # Configurar layout
             fig_tat.update_layout(
-                title=f"Análise Tática - {atleta_tat_nome}",
+                title=f"Análise Tática - {selected_atletas[0]} - {periodo_selecionado_tatica}",
                 xaxis_title="Posição no campo (metros) - Comprimento (gol esquerdo → gol direito)",
                 yaxis_title="Posição no campo (metros) - Largura (lateral esquerda → lateral direita)",
                 height=700,
@@ -1103,17 +1100,61 @@ if uploaded_files:
             
             st.plotly_chart(fig_tat, use_container_width=True)
             
+            # Explicação científica da intensidade (após o mapa)
+            with st.expander("📖 **O que é o índice de Intensidade?**"):
+                st.markdown("""
+                O **Índice de Intensidade** é uma métrica que combina a **velocidade média** e o **tempo de permanência** em cada zona, 
+                normalizada para uma escala de 0 a 100%.
+                
+                **Fórmula:**  
+                `Intensidade = (Velocidade_Média × Contagem) / Σ(Velocidade_Média × Contagem) × 100`
+                
+                **Interpretação:**  
+                - **Valores altos (>70%)** : Zonas onde o atleta desenvolveu maior esforço físico
+                - **Valores médios (30-70%)** : Zonas de atividade moderada
+                - **Valores baixos (<30%)** : Zonas de recuperação ou baixa atividade
+                
+                **Validação Científica:**  
+                Esta métrica é baseada no conceito de **carga de treino** (Training Load) proposto por Foster et al. (2001) e 
+                adaptado para análise de posicionamento em campo.
+                
+                *Referências:*  
+                - Foster, C., et al. (2001). A new approach to monitoring exercise training. *Journal of Strength and Conditioning Research*
+                - Carling, C., et al. (2008). Analysis of physical performance in elite soccer. *Journal of Sports Sciences*
+                - Bradley, P.S., et al. (2009). High-intensity running in English FA Premier League soccer matches. *Journal of Sports Sciences*
+                """)
+            
+            # TABELA (APÓS O MAPA)
+            st.markdown("### 📊 Demanda Física por Zona")
+            
+            zona_metrics_display = zona_metrics[['Contagem', '% Frequência', '% Acumulada', 'Tempo(s)', 'Tempo(min)', 'Distância(m)', 
+                                                   'Vel_Média', 'Vel_Máx', 'FC_Média', 'FC_Máx', 'Intensidade (%)']]
+            
+            st.dataframe(zona_metrics_display.style.format({
+                'Contagem': '{:.0f}',
+                '% Frequência': '{:.1f}%',
+                '% Acumulada': '{:.1f}%',
+                'Tempo(s)': '{:.1f}',
+                'Tempo(min)': '{:.1f}',
+                'Distância(m)': '{:.0f}',
+                'Vel_Média': '{:.1f}',
+                'Vel_Máx': '{:.1f}',
+                'FC_Média': '{:.0f}',
+                'FC_Máx': '{:.0f}',
+                'Intensidade (%)': '{:.1f}%'
+            }), use_container_width=True)
+            
             # Exportar
-            csv_tatico = zona_metrics.reset_index().to_csv(index=False)
+            csv_tatico = zona_metrics_display.reset_index().to_csv(index=False)
             st.download_button(
                 "📥 Exportar análise tática (CSV)",
                 csv_tatico,
-                f"analise_tatica_{atleta_tat_nome}.csv"
+                f"analise_tatica_{selected_atletas[0]}_{periodo_selecionado_tatica}.csv"
             )
         
         st.markdown("---")
-        st.download_button("📥 Exportar dados filtrados", df_combined.to_csv(index=False), "dados_filtrados.csv")
-        st.markdown(f"**Resumo:** {len(df_combined)} registros | **Atletas:** {', '.join(selected_atletas)}")
+        st.download_button("📥 Exportar dados filtrados", pd.concat(dfs_por_periodo.values()).to_csv(index=False), "dados_filtrados.csv")
+        st.markdown(f"**Períodos analisados:** {', '.join(dfs_por_periodo.keys())}")
     
     else:
         st.error("❌ Nenhum arquivo válido processado.")
@@ -1126,14 +1167,15 @@ else:
     1. **Faça upload** de arquivos CSV na barra lateral
     2. **Selecione o estádio** ou use detecção automática
     3. **Escolha os atletas** para análise
-    4. **Ajuste os filtros** de tempo e velocidade
-    5. **Explore as 2 abas** de análise
+    4. **Configure os períodos** de análise (ex: 1º tempo, 2º tempo)
+    5. **Ajuste os filtros** de tempo e velocidade
+    6. **Explore as 2 abas** de análise
     
     ### ✨ Funcionalidades:
     - 🏟️ **Campo retangular** com dimensões oficiais (105m x 68m)
-    - 📐 **Divisões em metros** - zonas com tamanhos iguais
+    - 📐 **Divisões iguais em metros** - zonas com tamanhos exatos
+    - ⏱️ **Períodos personalizados** - compare diferentes momentos do jogo
     - 📊 **Métricas completas** com % de frequência e frequência acumulada
-    - 📖 **Explicação científica** do índice de intensidade
     - 🗺️ **Mapas de calor** com anotações nos quadrantes
     
     ---
