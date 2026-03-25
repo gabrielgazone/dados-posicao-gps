@@ -228,6 +228,119 @@ def format_time_range(start_seconds, end_seconds, start_datetime):
     end_time = start_datetime + timedelta(seconds=end_seconds)
     return f"{start_time.strftime('%H:%M:%S')} - {end_time.strftime('%H:%M:%S')}"
 
+# ==================== FUNÇÃO PARA DESENHAR CAMPO DE FUTEBOL ====================
+
+def draw_football_field(show_center_circle=True, show_penalty_areas=True):
+    """Cria shapes e traces para desenhar um campo de futebol com dimensões padrão (105x68m)"""
+    # Coordenadas do campo (normalizadas em metros, mas vamos usar como estão)
+    # Vamos desenhar em um plano cartesiano de -52.5 a 52.5 no eixo X (largura) e -34 a 34 no eixo Y (altura)
+    # Isso dará um campo de 105m x 68m com centro em (0,0)
+    
+    field_shapes = []
+    
+    # Retângulo principal
+    field_shapes.append(go.layout.Shape(
+        type="rect",
+        x0=-52.5, x1=52.5,
+        y0=-34, y1=34,
+        line=dict(color="white", width=2),
+        fillcolor="rgba(34, 139, 34, 0.2)",
+        layer="below"
+    ))
+    
+    # Linha do meio de campo (eixo Y)
+    field_shapes.append(go.layout.Shape(
+        type="line",
+        x0=0, x1=0,
+        y0=-34, y1=34,
+        line=dict(color="white", width=2),
+        layer="below"
+    ))
+    
+    # Círculo central
+    if show_center_circle:
+        field_shapes.append(go.layout.Shape(
+            type="circle",
+            x0=-9.15, x1=9.15,
+            y0=-9.15, y1=9.15,
+            line=dict(color="white", width=2),
+            fillcolor="rgba(255,255,255,0)",
+            layer="below"
+        ))
+    
+    # Grandes áreas (16.5m da linha de fundo)
+    if show_penalty_areas:
+        # Grande área direita
+        field_shapes.append(go.layout.Shape(
+            type="rect",
+            x0=52.5-16.5, x1=52.5,
+            y0=-20.15, y1=20.15,
+            line=dict(color="white", width=2),
+            fillcolor="rgba(255,255,255,0)",
+            layer="below"
+        ))
+        # Grande área esquerda
+        field_shapes.append(go.layout.Shape(
+            type="rect",
+            x0=-52.5, x1=-52.5+16.5,
+            y0=-20.15, y1=20.15,
+            line=dict(color="white", width=2),
+            fillcolor="rgba(255,255,255,0)",
+            layer="below"
+        ))
+        
+        # Pequenas áreas (5.5m da linha de fundo)
+        # Pequena área direita
+        field_shapes.append(go.layout.Shape(
+            type="rect",
+            x0=52.5-5.5, x1=52.5,
+            y0=-9.15, y1=9.15,
+            line=dict(color="white", width=2),
+            fillcolor="rgba(255,255,255,0)",
+            layer="below"
+        ))
+        # Pequena área esquerda
+        field_shapes.append(go.layout.Shape(
+            type="rect",
+            x0=-52.5, x1=-52.5+5.5,
+            y0=-9.15, y1=9.15,
+            line=dict(color="white", width=2),
+            fillcolor="rgba(255,255,255,0)",
+            layer="below"
+        ))
+        
+        # Marcas de pênalti (11m)
+        # Pênalti direita
+        field_shapes.append(go.layout.Shape(
+            type="circle",
+            x0=52.5-11-0.2, x1=52.5-11+0.2,
+            y0=-0.2, y1=0.2,
+            line=dict(color="white", width=2),
+            fillcolor="white",
+            layer="below"
+        ))
+        # Pênalti esquerda
+        field_shapes.append(go.layout.Shape(
+            type="circle",
+            x0=-52.5+11-0.2, x1=-52.5+11+0.2,
+            y0=-0.2, y1=0.2,
+            line=dict(color="white", width=2),
+            fillcolor="white",
+            layer="below"
+        ))
+    
+    # Pontos de escanteio (arcos de 1m)
+    # Seriam complexos, vamos omitir por simplicidade
+    
+    return field_shapes
+
+def convert_latlon_to_field_coords(lat, lon, center_lat, center_lon, lat_range=0.001, lon_range=0.001):
+    """Converte coordenadas geográficas para coordenadas do campo (escala aproximada)"""
+    # Normaliza para -52.5 a 52.5 no eixo X e -34 a 34 no eixo Y
+    x = (lon - center_lon) / lon_range * 105  # 105m de largura
+    y = (lat - center_lat) / lat_range * 68   # 68m de altura
+    return x, y
+
 # ==================== SIDEBAR ====================
 
 st.sidebar.header("📁 Upload de Arquivos")
@@ -483,14 +596,15 @@ if uploaded_files:
             fc_max = df_main['HeartRate'].max() if 'HeartRate' in df_main.columns else 0
             st.metric("FC máxima", f"{fc_max:.0f} bpm")
         
-        # Criar abas
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        # Criar abas (adicionando a nova aba de análise tática)
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
             "🗺️ Mapa do Percurso", 
             "📈 Gráficos de Desempenho", 
             "⚡ Velocidade e Aceleração",
             "❤️ Frequência Cardíaca",
             "🔄 Aceleração vs Velocidade", 
-            "📊 Entropia Amostral"
+            "📊 Entropia Amostral",
+            "📐 Análise Tática por Zonas"  # NOVA ABA
         ])
         
         # ==================== TAB 1: MAPA COM CAMPO DE FUTEBOL ====================
@@ -1197,6 +1311,378 @@ if uploaded_files:
             else:
                 st.info("👆 **Clique no botão acima para iniciar a análise de entropia amostral.**")
         
+        # ==================== TAB 7: ANÁLISE TÁTICA POR ZONAS (NOVA) ====================
+        with tab7:
+            st.subheader("📐 Análise Tática Integrada: Demanda Física por Zona do Campo")
+            st.markdown("""
+            Esta ferramenta permite analisar como o atleta distribui sua **demanda física** (tempo, distância, intensidade) 
+            pelas **diferentes zonas do campo**, auxiliando na integração de dados físicos e táticos.
+            """)
+            
+            # Seleção do atleta para análise tática
+            if len(selected_atletas) > 1:
+                atleta_tatico = st.selectbox(
+                    "Selecione o atleta para análise tática",
+                    options=selected_atletas,
+                    index=0,
+                    key="tatico_atleta_select"
+                )
+                idx_tatico = selected_atletas.index(atleta_tatico)
+                df_tatico = dfs_filtered[idx_tatico].copy()
+                atleta_tatico_nome = atleta_tatico
+                start_dt_tatico = selected_start_datetimes[idx_tatico]
+            else:
+                df_tatico = df_main.copy()
+                atleta_tatico_nome = atleta_main
+                start_dt_tatico = start_dt_main
+            
+            # Filtros específicos para esta aba
+            st.markdown("#### 🎚️ Filtros Específicos para Análise Tática")
+            col_filtro1, col_filtro2 = st.columns(2)
+            
+            with col_filtro1:
+                # Filtro de horário específico para esta aba (permite selecionar subintervalo)
+                use_custom_time = st.checkbox("Usar intervalo de tempo personalizado para análise tática", value=False)
+                if use_custom_time:
+                    min_sec_custom = float(df_tatico['Seconds'].min())
+                    max_sec_custom = float(df_tatico['Seconds'].max())
+                    custom_range = st.slider(
+                        "Selecione o intervalo de tempo para análise tática",
+                        min_value=min_sec_custom,
+                        max_value=max_sec_custom,
+                        value=(min_sec_custom, max_sec_custom),
+                        step=1.0,
+                        format="%d",
+                        key="tatico_time_slider"
+                    )
+                    start_time_tatico, end_time_tatico = custom_range
+                    time_filter_tatico = (df_tatico['Seconds'] >= start_time_tatico) & (df_tatico['Seconds'] <= end_time_tatico)
+                    df_tatico = df_tatico[time_filter_tatico].copy()
+                    st.info(f"Intervalo personalizado: {seconds_to_time_str(start_time_tatico, start_dt_tatico)} → {seconds_to_time_str(end_time_tatico, start_dt_tatico)}")
+                else:
+                    st.info(f"Usando filtro global: {start_horario} → {end_horario}")
+            
+            with col_filtro2:
+                # Filtro de velocidade específico para esta aba
+                use_custom_speed = st.checkbox("Usar filtro de velocidade personalizado", value=False)
+                if use_custom_speed:
+                    min_speed_custom = float(df_tatico['Velocity'].min())
+                    max_speed_custom = float(df_tatico['Velocity'].max())
+                    custom_speed_range = st.slider(
+                        "Filtro de velocidade (km/h)",
+                        min_value=min_speed_custom,
+                        max_value=max_speed_custom,
+                        value=(min_speed_custom, max_speed_custom),
+                        step=0.5,
+                        key="tatico_speed_slider"
+                    )
+                    speed_filter_tatico = (df_tatico['Velocity'] >= custom_speed_range[0]) & (df_tatico['Velocity'] <= custom_speed_range[1])
+                    df_tatico = df_tatico[speed_filter_tatico].copy()
+                    st.info(f"Velocidade filtrada: {custom_speed_range[0]:.1f} - {custom_speed_range[1]:.1f} km/h")
+                else:
+                    st.info(f"Usando filtro global: {speed_range[0]:.1f} - {speed_range[1]:.1f} km/h")
+            
+            if len(df_tatico) == 0:
+                st.warning("⚠️ Nenhum dado disponível com os filtros selecionados.")
+                st.stop()
+            
+            st.markdown("---")
+            
+            # Configuração da divisão em zonas
+            st.markdown("#### 🧩 Configuração da Divisão do Campo")
+            col_div1, col_div2 = st.columns(2)
+            
+            with col_div1:
+                num_linhas = st.number_input("Número de linhas (divisão horizontal)", min_value=1, max_value=10, value=3, step=1,
+                                            help="Divide o campo longitudinalmente (ex: 3 = terços defensivo, médio, ofensivo)")
+                mostrar_linhas = st.checkbox("Mostrar divisão em linhas no gráfico", value=True)
+            
+            with col_div2:
+                num_colunas = st.number_input("Número de colunas (divisão vertical)", min_value=1, max_value=10, value=3, step=1,
+                                            help="Divide o campo transversalmente (ex: 3 = corredores esquerdo, central, direito)")
+                mostrar_colunas = st.checkbox("Mostrar divisão em colunas no gráfico", value=True)
+                mostrar_legenda = st.checkbox("Mostrar legenda das zonas", value=True)
+            
+            # Calcular limites do campo baseado nas coordenadas do atleta
+            lat_min, lat_max = df_tatico['Latitude'].min(), df_tatico['Latitude'].max()
+            lon_min, lon_max = df_tatico['Longitude'].min(), df_tatico['Longitude'].max()
+            
+            # Adicionar uma margem de 10% para não cortar os pontos nas bordas
+            lat_padding = (lat_max - lat_min) * 0.1
+            lon_padding = (lon_max - lon_min) * 0.1
+            lat_min_plot = lat_min - lat_padding
+            lat_max_plot = lat_max + lat_padding
+            lon_min_plot = lon_min - lon_padding
+            lon_max_plot = lon_max + lon_padding
+            
+            # Criar bins para as zonas
+            # Linhas (eixo Y - latitude)
+            linhas_bins = np.linspace(lat_min, lat_max, num_linhas + 1)
+            # Colunas (eixo X - longitude)
+            colunas_bins = np.linspace(lon_min, lon_max, num_colunas + 1)
+            
+            # Atribuir zona para cada ponto
+            df_tatico['Zona_Linha'] = pd.cut(df_tatico['Latitude'], bins=linhas_bins, labels=[f'L{i+1}' for i in range(num_linhas)], include_lowest=True)
+            df_tatico['Zona_Coluna'] = pd.cut(df_tatico['Longitude'], bins=colunas_bins, labels=[f'C{i+1}' for i in range(num_colunas)], include_lowest=True)
+            df_tatico['Zona'] = df_tatico['Zona_Linha'].astype(str) + '-' + df_tatico['Zona_Coluna'].astype(str)
+            
+            # Calcular métricas por zona
+            st.markdown("#### 📊 Demanda Física por Zona")
+            
+            # Agrupar por zona
+            zona_metrics = df_tatico.groupby('Zona', observed=True).agg({
+                'Seconds': 'count',  # número de registros
+                'Velocity': ['mean', 'max'],
+                'HeartRate': ['mean', 'max'],
+                'Latitude': 'count'  # placeholder para contagem
+            }).round(2)
+            
+            # Renomear colunas
+            zona_metrics.columns = ['Contagem', 'Vel_Média', 'Vel_Máx', 'FC_Média', 'FC_Máx', '_']
+            zona_metrics = zona_metrics.drop(columns=['_'])
+            
+            # Calcular tempo total (assumindo intervalo de amostragem constante)
+            # Estimativa: cada registro representa aproximadamente o tempo médio entre amostras
+            if len(df_tatico) > 1:
+                sample_rate = df_tatico['Seconds'].diff().median()
+                zona_metrics['Tempo_Total(s)'] = zona_metrics['Contagem'] * sample_rate
+                zona_metrics['Tempo_Total(min)'] = zona_metrics['Tempo_Total(s)'] / 60
+            else:
+                zona_metrics['Tempo_Total(s)'] = 0
+                zona_metrics['Tempo_Total(min)'] = 0
+            
+            # Calcular distância percorrida por zona (usando Odometer se disponível)
+            if 'Odometer' in df_tatico.columns:
+                # Para estimar distância por zona, precisamos da diferença de odômetro entre pontos consecutivos na mesma zona
+                # Vamos criar uma coluna de zona anterior e somar as diferenças
+                df_tatico = df_tatico.sort_values('Seconds')
+                df_tatico['Zona_Anterior'] = df_tatico['Zona'].shift(1)
+                df_tatico['Delta_Odometer'] = df_tatico['Odometer'].diff()
+                # Soma apenas quando a zona é a mesma (movimento dentro da zona)
+                df_tatico['Dist_Zona'] = df_tatico.apply(
+                    lambda row: row['Delta_Odometer'] if row['Zona'] == row['Zona_Anterior'] else 0, axis=1
+                )
+                dist_por_zona = df_tatico.groupby('Zona')['Dist_Zona'].sum().round(0)
+                zona_metrics['Distância(m)'] = dist_por_zona
+            else:
+                zona_metrics['Distância(m)'] = 0
+            
+            # Calcular intensidade (velocidade média * tempo, ou simplesmente média ponderada)
+            zona_metrics['Intensidade'] = (zona_metrics['Vel_Média'] * zona_metrics['Contagem']) / zona_metrics['Contagem'].sum() * 100
+            
+            # Exibir tabela
+            st.dataframe(zona_metrics.style.format({
+                'Contagem': '{:.0f}',
+                'Vel_Média': '{:.1f}',
+                'Vel_Máx': '{:.1f}',
+                'FC_Média': '{:.0f}',
+                'FC_Máx': '{:.0f}',
+                'Tempo_Total(s)': '{:.1f}',
+                'Tempo_Total(min)': '{:.1f}',
+                'Distância(m)': '{:.0f}',
+                'Intensidade': '{:.1f}%'
+            }), use_container_width=True)
+            
+            # Visualização do campo com zonas e trajetória
+            st.markdown("#### 🗺️ Visualização Tática")
+            
+            # Opção de visualização: mapa de calor ou pontos coloridos
+            viz_type = st.radio(
+                "Tipo de visualização",
+                options=["Trajetória com cores por zona", "Mapa de calor de tempo", "Mapa de calor de velocidade"],
+                horizontal=True,
+                key="tatico_viz_type"
+            )
+            
+            # Criar figura para o campo
+            fig_tatico = go.Figure()
+            
+            # Desenhar campo de futebol com shapes
+            # Primeiro, definir limites do campo plot
+            field_shapes = draw_football_field(show_center_circle=True, show_penalty_areas=True)
+            
+            # Adicionar shapes do campo (mas precisamos ajustar as coordenadas para o sistema geográfico)
+            # Como o campo desenhado está em coordenadas cartesianas (-52.5 a 52.5, -34 a 34), vamos mapear para as coordenadas geográficas
+            # Mapeamento linear simples: eixo X (longitude) e eixo Y (latitude)
+            # Vamos desenhar um retângulo que representa o campo no mapa, mas como temos coordenadas reais, vamos apenas desenhar as linhas baseadas nos limites
+            # Para simplificar e manter a estética, vamos desenhar as linhas principais no sistema de coordenadas do gráfico
+            
+            # Adicionar retângulo principal do campo
+            fig_tatico.add_shape(
+                type="rect",
+                x0=lon_min_plot, x1=lon_max_plot,
+                y0=lat_min_plot, y1=lat_max_plot,
+                line=dict(color="white", width=2),
+                fillcolor="rgba(34, 139, 34, 0.2)",
+                layer="below"
+            )
+            
+            # Adicionar linhas divisórias (zonas)
+            if mostrar_linhas:
+                for linha in linhas_bins[1:-1]:  # exclui a primeira e última (bordas)
+                    fig_tatico.add_shape(
+                        type="line",
+                        x0=lon_min_plot, x1=lon_max_plot,
+                        y0=linha, y1=linha,
+                        line=dict(color="rgba(255,255,255,0.5)", width=1, dash="dash"),
+                        layer="below"
+                    )
+            
+            if mostrar_colunas:
+                for coluna in colunas_bins[1:-1]:
+                    fig_tatico.add_shape(
+                        type="line",
+                        x0=coluna, x1=coluna,
+                        y0=lat_min_plot, y1=lat_max_plot,
+                        line=dict(color="rgba(255,255,255,0.5)", width=1, dash="dash"),
+                        layer="below"
+                    )
+            
+            # Adicionar trajetória ou mapa de calor baseado na escolha
+            if viz_type == "Trajetória com cores por zona":
+                # Plotar pontos coloridos por zona
+                for zona, group in df_tatico.groupby('Zona'):
+                    fig_tatico.add_trace(go.Scatter(
+                        x=group['Longitude'],
+                        y=group['Latitude'],
+                        mode='markers',
+                        name=f'Zona {zona}',
+                        marker=dict(size=4, opacity=0.7),
+                        text=[f"<b>Zona:</b> {zona}<br><b>Horário:</b> {seconds_to_time_str(t, start_dt_tatico)}<br><b>Vel:</b> {v:.1f} km/h<br><b>FC:</b> {fc:.0f} bpm"
+                              for t, v, fc in zip(group['Seconds'], group['Velocity'], group['HeartRate'])],
+                        hoverinfo='text',
+                        showlegend=True
+                    ))
+            
+            elif viz_type == "Mapa de calor de tempo":
+                # Criar mapa de calor baseado no tempo gasto (contagem de pontos)
+                # Criar uma grade 2D
+                heatmap_data = np.zeros((num_linhas, num_colunas))
+                for i, linha in enumerate(range(num_linhas)):
+                    for j, coluna in enumerate(range(num_colunas)):
+                        zona_label = f'L{linha+1}-C{coluna+1}'
+                        count = zona_metrics.loc[zona_label, 'Contagem'] if zona_label in zona_metrics.index else 0
+                        heatmap_data[i, j] = count
+                
+                # Transpor para que as linhas fiquem no eixo Y e colunas no eixo X
+                heatmap_data = heatmap_data.T
+                
+                # Definir limites para o mapa de calor (usar os bins)
+                heatmap_x = colunas_bins
+                heatmap_y = linhas_bins
+                
+                fig_tatico.add_trace(go.Heatmap(
+                    x=heatmap_x,
+                    y=heatmap_y,
+                    z=heatmap_data,
+                    colorscale='Hot',
+                    opacity=0.7,
+                    colorbar=dict(title="Tempo gasto<br>(nº registros)"),
+                    name="Mapa de calor de tempo"
+                ))
+                
+                # Adicionar também os pontos da trajetória em cima
+                fig_tatico.add_trace(go.Scatter(
+                    x=df_tatico['Longitude'],
+                    y=df_tatico['Latitude'],
+                    mode='markers',
+                    marker=dict(size=3, color='white', opacity=0.5),
+                    name='Trajetória',
+                    hoverinfo='skip'
+                ))
+            
+            elif viz_type == "Mapa de calor de velocidade":
+                # Criar mapa de calor baseado na velocidade média
+                heatmap_data_vel = np.zeros((num_linhas, num_colunas))
+                for i, linha in enumerate(range(num_linhas)):
+                    for j, coluna in enumerate(range(num_colunas)):
+                        zona_label = f'L{linha+1}-C{coluna+1}'
+                        vel_mean = zona_metrics.loc[zona_label, 'Vel_Média'] if zona_label in zona_metrics.index else 0
+                        heatmap_data_vel[i, j] = vel_mean
+                
+                heatmap_data_vel = heatmap_data_vel.T
+                
+                fig_tatico.add_trace(go.Heatmap(
+                    x=colunas_bins,
+                    y=linhas_bins,
+                    z=heatmap_data_vel,
+                    colorscale='Viridis',
+                    opacity=0.7,
+                    colorbar=dict(title="Velocidade média<br>(km/h)"),
+                    name="Mapa de calor de velocidade"
+                ))
+                
+                # Adicionar também os pontos da trajetória em cima
+                fig_tatico.add_trace(go.Scatter(
+                    x=df_tatico['Longitude'],
+                    y=df_tatico['Latitude'],
+                    mode='markers',
+                    marker=dict(size=3, color='white', opacity=0.5),
+                    name='Trajetória',
+                    hoverinfo='skip'
+                ))
+            
+            # Configurar layout
+            fig_tatico.update_layout(
+                title=f"Análise Tática - {atleta_tatico_nome}",
+                xaxis_title="Longitude",
+                yaxis_title="Latitude",
+                height=700,
+                hovermode='closest',
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="right",
+                    x=1
+                )
+            )
+            
+            # Configurar proporção do campo (manter aspecto)
+            fig_tatico.update_yaxes(
+                scaleanchor="x",
+                scaleratio=1
+            )
+            
+            st.plotly_chart(fig_tatico, use_container_width=True)
+            
+            # Análise complementar: radar de intensidade por zona
+            st.markdown("#### 📈 Comparação de Intensidade entre Zonas")
+            
+            # Preparar dados para radar (top N zonas com maior intensidade)
+            top_zonas = zona_metrics.nlargest(8, 'Intensidade').reset_index()
+            
+            if len(top_zonas) > 0:
+                fig_radar = go.Figure()
+                
+                fig_radar.add_trace(go.Bar(
+                    x=top_zonas['Zona'],
+                    y=top_zonas['Intensidade'],
+                    marker_color='rgba(255, 99, 71, 0.7)',
+                    name='Intensidade Relativa (%)',
+                    text=top_zonas['Intensidade'].round(1),
+                    textposition='auto'
+                ))
+                
+                fig_radar.update_layout(
+                    title="Top 8 Zonas com Maior Intensidade",
+                    xaxis_title="Zona",
+                    yaxis_title="Intensidade Relativa (%)",
+                    height=500,
+                    xaxis_tickangle=-45
+                )
+                
+                st.plotly_chart(fig_radar, use_container_width=True)
+            
+            # Exportar dados da análise tática
+            csv_tatico = zona_metrics.reset_index().to_csv(index=False)
+            st.download_button(
+                label="📥 Exportar análise tática (CSV)",
+                data=csv_tatico,
+                file_name=f"analise_tatica_{atleta_tatico_nome}.csv",
+                mime="text/csv"
+            )
+        
         # Botão de download
         st.markdown("---")
         csv_data = df_combined.to_csv(index=False)
@@ -1235,6 +1721,7 @@ else:
     - **Barra de rolagem com horários**: Arraste os marcadores para selecionar o intervalo exato
     - **Campo de futebol**: Visualização com dimensões oficiais do campo
     - **Sobreposição de gráficos**: Velocidade e FC no mesmo gráfico
+    - **🆕 Análise Tática por Zonas**: Integração de dados físicos e táticos com divisão do campo em linhas e colunas
     
     ---
     **👈 Clique em "Browse files" na barra lateral para começar!**
@@ -1252,6 +1739,7 @@ else:
         4. **❤️ Frequência Cardíaca** - Análise de zonas de intensidade
         5. **🔄 Aceleração vs Velocidade** - Relação com quadrantes
         6. **📊 Entropia Amostral** - Análise da regularidade dos movimentos
+        7. **📐 Análise Tática por Zonas** - 🆕 Integração de dados físicos e táticos com divisão do campo em linhas e colunas
         
         **Múltiplos arquivos:**
         - Selecione vários arquivos CSV ao mesmo tempo
