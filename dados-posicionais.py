@@ -36,7 +36,7 @@ X_MAX = CAMPO_COMPRIMENTO / 2
 Y_MIN = -CAMPO_LARGURA / 2
 Y_MAX = CAMPO_LARGURA / 2
 
-# ==================== FUNÇÃO DO PERFIL ACELERAÇÃO-VELOCIDADE ====================
+# ==================== FUNÇÕES ====================
 
 @st.cache_data(ttl=3600)
 def fit_velocidade_aceleracao_cached(velocidades_tuple, aceleracoes_tuple):
@@ -96,8 +96,6 @@ def calcular_asp_metrics(df):
         result['num_sprints'] = len(df_sprints)
         result['f0'] = result['a0']
     return result
-
-# ==================== FUNÇÕES DE CONVERSÃO ====================
 
 @st.cache_data(ttl=3600)
 def converter_gps_para_campo_cached(lat, lon, bounds):
@@ -333,212 +331,74 @@ def load_data(uploaded_file):
         st.error(f"Erro ao carregar arquivo {uploaded_file.name}: {e}")
         return None, None, None, None
 
-# ==================== SIDEBAR ====================
+# ==================== INICIALIZAÇÃO ====================
 
 init_database()
 
-st.sidebar.header("📁 Upload de Arquivos")
+st.sidebar.header("📁 1. Upload de Arquivos")
 uploaded_files = st.sidebar.file_uploader("Escolha os arquivos CSV", type=['csv'], accept_multiple_files=True)
 
-# ==================== CARREGAMENTO INICIAL PARA PROVA REAL ====================
-# Carregar o primeiro arquivo para obter o horário de referência IMEDIATAMENTE
-if uploaded_files and 'reference_datetime_global' not in st.session_state:
-    with st.spinner("Carregando referência de horário..."):
-        for file in uploaded_files:
-            df, atleta, periodo, start_datetime = load_data(file)
-            if df is not None and start_datetime is not None:
-                st.session_state.reference_datetime_global = start_datetime
-                st.session_state.first_atleta = atleta
-                break
+# ==================== CARREGAMENTO DOS DADOS ====================
 
-# ==================== SIDEBAR - SELEÇÃO DE ESTÁDIO ====================
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("🏟️ Configuração do Estádio")
-
-df_estadios = carregar_estadios()
-estadio_selecionado = None
-bounds_estadio = None
-centro_estadio = None
-nome_estadio = "Não selecionado"
-
-if len(df_estadios) > 0:
-    opcoes_estadio = ["Detectar automaticamente"] + df_estadios['nome'].tolist() + ["Cadastrar novo estádio"]
-    selecao_estadio = st.sidebar.selectbox("Selecione o estádio ou modo de detecção", options=opcoes_estadio, index=0, key="selecao_estadio")
+if uploaded_files:
+    # Carregar todos os dados para o session_state
+    if 'dados_carregados' not in st.session_state or st.session_state.get('arquivos_anteriores') != [f.name for f in uploaded_files]:
+        with st.spinner("Carregando arquivos..."):
+            all_data = []
+            all_atletas = []
+            all_periodos = []
+            all_start_datetimes = []
+            
+            for file in uploaded_files:
+                df, atleta, periodo, start_datetime = load_data(file)
+                if df is not None and len(df) > 0:
+                    all_data.append(df)
+                    all_atletas.append(atleta)
+                    all_periodos.append(periodo)
+                    all_start_datetimes.append(start_datetime)
+            
+            if all_data:
+                st.session_state.dados_carregados = all_data
+                st.session_state.atletas = all_atletas
+                st.session_state.periodos_orig = all_periodos
+                st.session_state.start_datetimes = all_start_datetimes
+                st.session_state.reference_datetime = all_start_datetimes[0] if all_start_datetimes[0] is not None else None
+                st.session_state.arquivos_anteriores = [f.name for f in uploaded_files]
+                st.session_state.dados_prontos = True
+            else:
+                st.session_state.dados_prontos = False
+                st.error("❌ Nenhum arquivo válido processado.")
     
-    if selecao_estadio != "Detectar automaticamente" and selecao_estadio != "Cadastrar novo estádio":
-        idx_estadio = df_estadios[df_estadios['nome'] == selecao_estadio].index[0]
-        estadio_selecionado = obter_estadio(df_estadios.loc[idx_estadio, 'id'])
-        if estadio_selecionado:
-            bounds_estadio = estadio_selecionado['bounds']
-            centro_estadio = estadio_selecionado['centro']
-            nome_estadio = estadio_selecionado['nome']
-            st.sidebar.success(f"✅ Estádio: {nome_estadio}")
-    
-    if selecao_estadio == "Cadastrar novo estádio":
-        with st.sidebar.expander("📝 Cadastrar novo estádio", expanded=False):
-            st.markdown("### Dados básicos")
-            col1, col2 = st.columns(2)
-            with col1:
-                nome_novo = st.text_input("Nome do estádio*", placeholder="Ex: Castelão")
-            with col2:
-                cidade_nova = st.text_input("Cidade", placeholder="Ex: Fortaleza")
-            pais_novo = st.text_input("País", placeholder="Ex: Brasil")
-            
-            st.markdown("---")
-            st.markdown("### 🔍 Localizar estádio")
-            endereco_busca = st.text_input("Buscar local", placeholder="Ex: Arena Castelão, Fortaleza")
-            if endereco_busca:
-                with st.spinner("Buscando localização..."):
-                    lat, lon, nome_encontrado = geocodificar_endereco(endereco_busca)
-                    if lat and lon:
-                        st.success(f"📍 Local encontrado: {nome_encontrado}")
-                        st.info(f"Coordenadas: {lat:.6f}, {lon:.6f}")
-                        if 'centro_lat_temp' not in st.session_state:
-                            st.session_state.centro_lat_temp = lat
-                            st.session_state.centro_lon_temp = lon
-                    else:
-                        st.error("❌ Local não encontrado.")
-            
-            st.markdown("---")
-            st.markdown("### 🗺️ Limites do campo")
-            center_lat = st.session_state.centro_lat_temp if 'centro_lat_temp' in st.session_state else -23.5505
-            center_lon = st.session_state.centro_lon_temp if 'centro_lon_temp' in st.session_state else -46.6333
-            
-            col_lim1, col_lim2 = st.columns(2)
-            with col_lim1:
-                lat_min = st.number_input("Latitude mínima (Sul)", value=center_lat - 0.002, format="%.8f")
-                lat_max = st.number_input("Latitude máxima (Norte)", value=center_lat + 0.002, format="%.8f")
-            with col_lim2:
-                lon_min = st.number_input("Longitude mínima (Oeste)", value=center_lon - 0.002, format="%.8f")
-                lon_max = st.number_input("Longitude máxima (Leste)", value=center_lon + 0.002, format="%.8f")
-            
-            centro_lat, centro_lon = (lat_min + lat_max) / 2, (lon_min + lon_max) / 2
-            
-            if st.button("💾 Salvar estádio", type="primary", use_container_width=True):
-                if nome_novo:
-                    conn = sqlite3.connect(DB_PATH)
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT id FROM estadios WHERE nome = ?", (nome_novo,))
-                    existe = cursor.fetchone()
-                    conn.close()
-                    if existe:
-                        st.error(f"❌ Estádio '{nome_novo}' já existe!")
-                    else:
-                        pontos = [{'lat': lat_max, 'lng': lon_min, 'nome': 'NO'}, {'lat': lat_max, 'lng': lon_max, 'nome': 'NE'},
-                                  {'lat': lat_min, 'lng': lon_min, 'nome': 'SO'}, {'lat': lat_min, 'lng': lon_max, 'nome': 'SE'}]
-                        endereco = f"{nome_novo}, {cidade_nova}, {pais_novo}"
-                        adicionar_estadio(nome_novo, cidade_nova, pais_novo, endereco, centro_lat, centro_lon, pontos)
-                        st.success(f"✅ Estádio {nome_novo} cadastrado!")
-                        import time; time.sleep(1); st.rerun()
-                else:
-                    st.error("❌ Nome do estádio é obrigatório!")
-else:
-    st.sidebar.warning("Nenhum estádio cadastrado")
-    selecao_estadio = "Detectar automaticamente"
-
-# ==================== SIDEBAR - DIVISÃO TEMPORAL ====================
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("⏱️ Divisão Temporal do Jogo")
-
-# Inicializar períodos
-if 'periodos' not in st.session_state:
-    st.session_state.periodos = [{"nome": "1º Tempo", "inicio": 0, "fim": 45}]
-
-if st.sidebar.button("➕ Adicionar período", use_container_width=True):
-    st.session_state.periodos.append({"nome": f"Período {len(st.session_state.periodos) + 1}", "inicio": 0, "fim": 45})
-    st.rerun()
-
-def get_horario_formatado(minutos, start_dt):
-    if start_dt:
-        segundos = minutos * 60
-        return seconds_to_time_str(segundos, start_dt)
-    return f"{int(minutos)}:00"
-
-# Obter horário de referência do session state (já carregado)
-reference_dt = st.session_state.get('reference_datetime_global', None)
-
-# Exibir períodos com prova real (AGORA FUNCIONA!)
-st.sidebar.markdown("### Períodos configurados:")
-
-periodos_para_remover = []
-for i, periodo in enumerate(st.session_state.periodos):
-    with st.sidebar.expander(f"📅 {periodo['nome']}", expanded=False):
-        col_nome, col_remover = st.columns([3, 1])
-        with col_nome:
-            novo_nome = st.text_input("Nome", value=periodo['nome'], key=f"nome_{i}")
-        with col_remover:
-            if i > 0:
-                if st.button("🗑️", key=f"remover_{i}"):
-                    periodos_para_remover.append(i)
+    if st.session_state.get('dados_prontos', False):
+        # ==================== CONFIGURAÇÃO (SIDEBAR) ====================
         
-        col_ini, col_fim = st.columns(2)
-        with col_ini:
-            novo_inicio = st.number_input("Início (min)", value=float(periodo['inicio']), step=1.0, key=f"inicio_{i}")
-        with col_fim:
-            novo_fim = st.number_input("Fim (min)", value=float(periodo['fim']), step=1.0, key=f"fim_{i}")
+        # 2. Configuração do Estádio
+        st.sidebar.markdown("---")
+        st.sidebar.header("🏟️ 2. Configuração do Estádio")
         
-        st.session_state.periodos[i] = {"nome": novo_nome, "inicio": novo_inicio, "fim": novo_fim}
+        df_estadios = carregar_estadios()
+        bounds_estadio = None
+        centro_estadio = None
+        nome_estadio = "Não selecionado"
         
-        # PROVA REAL - Exibe horário e duração (AGORA COM CALLBACK FUNCIONANDO)
-        if reference_dt:
-            inicio_horario = get_horario_formatado(novo_inicio, reference_dt)
-            fim_horario = get_horario_formatado(novo_fim, reference_dt)
-            duracao_seg = (novo_fim - novo_inicio) * 60
-            duracao_str = format_duration(duracao_seg)
-            st.caption(f"🕐 {inicio_horario} → {fim_horario}  |  ⏱️ Duração: {duracao_str}")
-        else:
-            st.caption("⏳ Aguardando upload do arquivo para exibir horários reais")
-
-for i in sorted(periodos_para_remover, reverse=True):
-    st.session_state.periodos.pop(i)
-    st.rerun()
-
-# ==================== BOTÃO DE PROCESSAMENTO ====================
-
-st.sidebar.markdown("---")
-processar = st.sidebar.button("🚀 PROCESSAR ANÁLISE", type="primary", use_container_width=True)
-
-# ==================== PROCESSAMENTO PRINCIPAL ====================
-
-if uploaded_files and processar:
-    with st.spinner("Carregando e processando arquivos..."):
-        all_data = []
-        all_atletas = []
-        all_periodos = []
-        all_start_datetimes = []
-        
-        for file in uploaded_files:
-            df, atleta, periodo, start_datetime = load_data(file)
-            if df is not None and len(df) > 0:
-                all_data.append(df)
-                all_atletas.append(atleta)
-                all_periodos.append(periodo)
-                all_start_datetimes.append(start_datetime)
-        
-        if all_data:
-            selected_indices = st.sidebar.multiselect(
-                "Escolha os atletas",
-                options=range(len(all_atletas)),
-                format_func=lambda x: f"{all_atletas[x]} - {all_periodos[x]}" if all_periodos[x] != "Não identificado" else all_atletas[x],
-                default=[0] if len(all_atletas) > 0 else []
-            )
+        if len(df_estadios) > 0:
+            opcoes_estadio = ["Detectar automaticamente"] + df_estadios['nome'].tolist() + ["Cadastrar novo estádio"]
+            selecao_estadio = st.sidebar.selectbox("Selecione o estádio ou modo de detecção", options=opcoes_estadio, index=0, key="selecao_estadio")
             
-            if not selected_indices:
-                st.warning("⚠️ Selecione pelo menos um atleta para análise.")
-                st.stop()
-            
-            selected_atletas = [all_atletas[i] for i in selected_indices]
-            selected_data = [all_data[i] for i in selected_indices]
-            selected_periodos = [all_periodos[i] for i in selected_indices]
-            selected_start_datetimes = [all_start_datetimes[i] for i in selected_indices]
-            
-            reference_datetime = selected_start_datetimes[0] if selected_start_datetimes[0] is not None else None
-            
-            df_calibracao = selected_data[0]
-            
-            if selecao_estadio == "Detectar automaticamente" or estadio_selecionado is None:
+            if selecao_estadio != "Detectar automaticamente" and selecao_estadio != "Cadastrar novo estádio":
+                idx_estadio = df_estadios[df_estadios['nome'] == selecao_estadio].index[0]
+                estadio = obter_estadio(df_estadios.loc[idx_estadio, 'id'])
+                if estadio:
+                    bounds_estadio = estadio['bounds']
+                    centro_estadio = estadio['centro']
+                    nome_estadio = estadio['nome']
+                    st.session_state.bounds_estadio = bounds_estadio
+                    st.session_state.centro_estadio = centro_estadio
+                    st.session_state.nome_estadio = nome_estadio
+                    st.sidebar.success(f"✅ Estádio: {nome_estadio}")
+            elif selecao_estadio == "Detectar automaticamente":
+                # Detecção automática baseada nos dados
+                df_calibracao = st.session_state.dados_carregados[0]
                 lat_min = df_calibracao['Latitude'].quantile(0.01)
                 lat_max = df_calibracao['Latitude'].quantile(0.99)
                 lon_min = df_calibracao['Longitude'].quantile(0.01)
@@ -547,64 +407,226 @@ if uploaded_files and processar:
                 bounds_estadio = (lat_min, lat_max, lon_min, lon_max)
                 centro_estadio = (centro_lat, centro_lon)
                 nome_estadio = "Detectado automaticamente"
+                st.session_state.bounds_estadio = bounds_estadio
+                st.session_state.centro_estadio = centro_estadio
+                st.session_state.nome_estadio = nome_estadio
+                st.sidebar.info(f"🔍 Estádio detectado automaticamente")
             
-            st.sidebar.markdown("---")
-            st.sidebar.subheader("⏱️ Filtro Temporal Global")
+            if selecao_estadio == "Cadastrar novo estádio":
+                with st.sidebar.expander("📝 Cadastrar novo estádio", expanded=False):
+                    st.markdown("### Dados básicos")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        nome_novo = st.text_input("Nome do estádio*", placeholder="Ex: Castelão")
+                    with col2:
+                        cidade_nova = st.text_input("Cidade", placeholder="Ex: Fortaleza")
+                    pais_novo = st.text_input("País", placeholder="Ex: Brasil")
+                    
+                    st.markdown("---")
+                    st.markdown("### 🔍 Localizar estádio")
+                    endereco_busca = st.text_input("Buscar local", placeholder="Ex: Arena Castelão, Fortaleza")
+                    if endereco_busca:
+                        with st.spinner("Buscando localização..."):
+                            lat, lon, nome_encontrado = geocodificar_endereco(endereco_busca)
+                            if lat and lon:
+                                st.success(f"📍 Local encontrado: {nome_encontrado}")
+                                st.info(f"Coordenadas: {lat:.6f}, {lon:.6f}")
+                                if 'centro_lat_temp' not in st.session_state:
+                                    st.session_state.centro_lat_temp = lat
+                                    st.session_state.centro_lon_temp = lon
+                            else:
+                                st.error("❌ Local não encontrado.")
+                    
+                    st.markdown("---")
+                    st.markdown("### 🗺️ Limites do campo")
+                    center_lat = st.session_state.centro_lat_temp if 'centro_lat_temp' in st.session_state else -23.5505
+                    center_lon = st.session_state.centro_lon_temp if 'centro_lon_temp' in st.session_state else -46.6333
+                    
+                    col_lim1, col_lim2 = st.columns(2)
+                    with col_lim1:
+                        lat_min = st.number_input("Latitude mínima (Sul)", value=center_lat - 0.002, format="%.8f")
+                        lat_max = st.number_input("Latitude máxima (Norte)", value=center_lat + 0.002, format="%.8f")
+                    with col_lim2:
+                        lon_min = st.number_input("Longitude mínima (Oeste)", value=center_lon - 0.002, format="%.8f")
+                        lon_max = st.number_input("Longitude máxima (Leste)", value=center_lon + 0.002, format="%.8f")
+                    
+                    centro_lat, centro_lon = (lat_min + lat_max) / 2, (lon_min + lon_max) / 2
+                    
+                    if st.button("💾 Salvar estádio", type="primary", use_container_width=True):
+                        if nome_novo:
+                            conn = sqlite3.connect(DB_PATH)
+                            cursor = conn.cursor()
+                            cursor.execute("SELECT id FROM estadios WHERE nome = ?", (nome_novo,))
+                            existe = cursor.fetchone()
+                            conn.close()
+                            if existe:
+                                st.error(f"❌ Estádio '{nome_novo}' já existe!")
+                            else:
+                                pontos = [{'lat': lat_max, 'lng': lon_min, 'nome': 'NO'}, {'lat': lat_max, 'lng': lon_max, 'nome': 'NE'},
+                                          {'lat': lat_min, 'lng': lon_min, 'nome': 'SO'}, {'lat': lat_min, 'lng': lon_max, 'nome': 'SE'}]
+                                endereco = f"{nome_novo}, {cidade_nova}, {pais_novo}"
+                                adicionar_estadio(nome_novo, cidade_nova, pais_novo, endereco, centro_lat, centro_lon, pontos)
+                                st.success(f"✅ Estádio {nome_novo} cadastrado!")
+                                import time; time.sleep(1); st.rerun()
+                        else:
+                            st.error("❌ Nome do estádio é obrigatório!")
+        else:
+            st.sidebar.warning("Nenhum estádio cadastrado")
+            selecao_estadio = "Detectar automaticamente"
+        
+        # 3. Divisão Temporal
+        st.sidebar.markdown("---")
+        st.sidebar.header("⏱️ 3. Divisão Temporal do Jogo")
+        
+        if 'periodos_config' not in st.session_state:
+            st.session_state.periodos_config = [{"nome": "1º Tempo", "inicio": 0, "fim": 45}]
+        
+        if st.sidebar.button("➕ Adicionar período", use_container_width=True):
+            st.session_state.periodos_config.append({"nome": f"Período {len(st.session_state.periodos_config) + 1}", "inicio": 0, "fim": 45})
+            st.rerun()
+        
+        reference_dt = st.session_state.get('reference_datetime', None)
+        
+        periodos_para_remover = []
+        for i, periodo in enumerate(st.session_state.periodos_config):
+            with st.sidebar.expander(f"📅 {periodo['nome']}", expanded=False):
+                col_nome, col_remover = st.columns([3, 1])
+                with col_nome:
+                    novo_nome = st.text_input("Nome", value=periodo['nome'], key=f"config_nome_{i}")
+                with col_remover:
+                    if i > 0:
+                        if st.button("🗑️", key=f"config_remover_{i}"):
+                            periodos_para_remover.append(i)
+                
+                col_ini, col_fim = st.columns(2)
+                with col_ini:
+                    novo_inicio = st.number_input("Início (min)", value=float(periodo['inicio']), step=1.0, key=f"config_inicio_{i}")
+                with col_fim:
+                    novo_fim = st.number_input("Fim (min)", value=float(periodo['fim']), step=1.0, key=f"config_fim_{i}")
+                
+                st.session_state.periodos_config[i] = {"nome": novo_nome, "inicio": novo_inicio, "fim": novo_fim}
+                
+                # Prova real
+                if reference_dt:
+                    inicio_horario = seconds_to_time_str(novo_inicio * 60, reference_dt)
+                    fim_horario = seconds_to_time_str(novo_fim * 60, reference_dt)
+                    duracao_seg = (novo_fim - novo_inicio) * 60
+                    duracao_str = format_duration(duracao_seg)
+                    st.caption(f"🕐 {inicio_horario} → {fim_horario}  |  ⏱️ Duração: {duracao_str}")
+                else:
+                    st.caption("⏳ Aguardando horário de referência")
+        
+        for i in sorted(periodos_para_remover, reverse=True):
+            st.session_state.periodos_config.pop(i)
+            st.rerun()
+        
+        # 4. Filtros
+        st.sidebar.markdown("---")
+        st.sidebar.header("⚡ 4. Filtros")
+        
+        # Filtro Temporal Global
+        min_time = float('inf')
+        max_time = 0
+        for df in st.session_state.dados_carregados:
+            min_time = min(min_time, df['Seconds'].min())
+            max_time = max(max_time, df['Seconds'].max())
+        
+        min_time_min, max_time_min = min_time / 60, max_time / 60
+        
+        if reference_dt:
+            tempo_range = st.sidebar.slider("Intervalo de tempo (minutos)", 
+                                            min_value=float(min_time_min),
+                                            max_value=float(max_time_min), 
+                                            value=(float(min_time_min), float(max_time_min)), 
+                                            step=0.5,
+                                            key="tempo_global")
+            start_time_min, end_time_min = tempo_range
+            start_time, end_time = start_time_min * 60, end_time_min * 60
+            start_horario_global = seconds_to_time_str(start_time, reference_dt)
+            end_horario_global = seconds_to_time_str(end_time, reference_dt)
+            st.sidebar.caption(f"🕐 {start_horario_global} → {end_horario_global}")
+        else:
+            tempo_range = st.sidebar.slider("Intervalo de tempo (minutos)", 
+                                            min_value=float(min_time_min),
+                                            max_value=float(max_time_min), 
+                                            value=(float(min_time_min), float(max_time_min)), 
+                                            step=0.5,
+                                            key="tempo_global")
+            start_time_min, end_time_min = tempo_range
+            start_time, end_time = start_time_min * 60, end_time_min * 60
+        
+        # Filtro Velocidade
+        max_speed = max([df['Velocity'].max() for df in st.session_state.dados_carregados])
+        speed_range = st.sidebar.slider("Velocidade (km/h)", 
+                                        min_value=0.0, 
+                                        max_value=float(max_speed),
+                                        value=(0.0, float(max_speed)), 
+                                        step=0.5,
+                                        key="velocidade_filtro")
+        
+        # 5. Seleção de Atletas
+        st.sidebar.markdown("---")
+        st.sidebar.header("🏅 5. Selecionar Atleta(s)")
+        
+        atleta_options = []
+        for atleta, periodo in zip(st.session_state.atletas, st.session_state.periodos_orig):
+            display_name = f"{atleta} - {periodo}" if periodo != "Não identificado" else atleta
+            atleta_options.append(display_name)
+        
+        selected_indices = st.sidebar.multiselect(
+            "Escolha os atletas",
+            options=range(len(atleta_options)),
+            format_func=lambda x: atleta_options[x],
+            default=[0] if len(atleta_options) > 0 else []
+        )
+        
+        # 6. Opções de Visualização
+        st.sidebar.markdown("---")
+        st.sidebar.header("🎨 6. Opções de Visualização")
+        show_field = st.sidebar.checkbox("Mostrar campo", value=True, key="show_field")
+        
+        # 7. Seleção de Períodos para Análise
+        st.sidebar.markdown("---")
+        st.sidebar.header("📊 7. Selecionar Períodos para Análise")
+        
+        opcoes_periodos_analise = ["Todos os períodos"] + [p['nome'] for p in st.session_state.periodos_config]
+        periodos_analise_indices = st.sidebar.multiselect(
+            "Períodos para análise",
+            options=range(len(opcoes_periodos_analise)),
+            format_func=lambda x: opcoes_periodos_analise[x],
+            default=[0],
+            key="periodos_analise"
+        )
+        
+        # ==================== BOTÃO DE PROCESSAMENTO ====================
+        st.sidebar.markdown("---")
+        processar = st.sidebar.button("🚀 PROCESSAR ANÁLISE", type="primary", use_container_width=True)
+        
+        # ==================== PROCESSAMENTO DAS ANÁLISES ====================
+        if processar:
+            if not selected_indices:
+                st.warning("⚠️ Selecione pelo menos um atleta para análise.")
+                st.stop()
             
-            min_time = float('inf')
-            max_time = 0
-            for df in selected_data:
-                min_time = min(min_time, df['Seconds'].min())
-                max_time = max(max_time, df['Seconds'].max())
-            
-            min_time_min, max_time_min = min_time / 60, max_time / 60
-            
-            if reference_datetime:
-                selected_range = st.sidebar.slider("Intervalo de tempo (minutos)", min_value=float(min_time_min),
-                                                   max_value=float(max_time_min), value=(float(min_time_min), float(max_time_min)), step=0.5)
-                start_time_min, end_time_min = selected_range
-                start_time, end_time = start_time_min * 60, end_time_min * 60
-                start_horario = seconds_to_time_str(start_time, reference_datetime)
-                end_horario = seconds_to_time_str(end_time, reference_datetime)
-            else:
-                start_time, end_time = min_time, max_time
-                start_horario = f"{int(start_time//3600):02d}:{int((start_time%3600)//60):02d}:{int(start_time%60):02d}"
-                end_horario = f"{int(end_time//3600):02d}:{int((end_time%3600)//60):02d}:{int(end_time%60):02d}"
-            
-            st.sidebar.markdown("---")
-            st.sidebar.subheader("⚡ Filtro Velocidade")
-            
-            max_speed = max([df['Velocity'].max() for df in selected_data])
-            speed_range = st.sidebar.slider("Velocidade (km/h)", min_value=0.0, max_value=float(max_speed),
-                                            value=(0.0, float(max_speed)), step=0.5)
-            
-            st.sidebar.markdown("---")
-            st.sidebar.subheader("🎨 Opções")
-            show_field = st.sidebar.checkbox("Mostrar campo", value=True)
-            
-            # Opção "Todos os períodos"
-            opcoes_periodos = ["Todos os períodos"] + [p['nome'] for p in st.session_state.periodos]
-            periodos_selecionados = st.sidebar.multiselect(
-                "Selecionar períodos para análise",
-                options=range(len(opcoes_periodos)),
-                format_func=lambda x: opcoes_periodos[x],
-                default=[0]
-            )
+            selected_atletas = [st.session_state.atletas[i] for i in selected_indices]
+            selected_data = [st.session_state.dados_carregados[i] for i in selected_indices]
+            selected_periodos_orig = [st.session_state.periodos_orig[i] for i in selected_indices]
+            selected_start_datetimes = [st.session_state.start_datetimes[i] for i in selected_indices]
             
             # Filtrar dados por período selecionado
             dfs_por_periodo = {}
             df_combinado_total = pd.DataFrame()
             
-            for periodo_idx in periodos_selecionados:
+            for periodo_idx in periodos_analise_indices:
                 if periodo_idx == 0:
                     periodo_nome = "Todos os períodos"
                     dfs_periodo = []
-                    for df, atleta, periodo_nome_orig, start_dt in zip(selected_data, selected_atletas, selected_periodos, selected_start_datetimes):
+                    for df, atleta, periodo_orig, start_dt in zip(selected_data, selected_atletas, selected_periodos_orig, selected_start_datetimes):
                         time_filter = (df['Seconds'] >= start_time) & (df['Seconds'] <= end_time)
                         speed_filter = (df['Velocity'] >= speed_range[0]) & (df['Velocity'] <= speed_range[1])
                         df_filtered = df[time_filter & speed_filter].copy()
                         df_filtered['Atleta'] = atleta
-                        df_filtered['Periodo'] = periodo_nome_orig
+                        df_filtered['Periodo'] = periodo_orig
                         df_filtered['Periodo_Analise'] = periodo_nome
                         df_filtered['start_datetime'] = start_dt
                         dfs_periodo.append(df_filtered)
@@ -613,18 +635,18 @@ if uploaded_files and processar:
                         dfs_por_periodo[periodo_nome] = df_temp
                         df_combinado_total = pd.concat([df_combinado_total, df_temp], ignore_index=True) if not df_combinado_total.empty else df_temp
                 else:
-                    periodo = st.session_state.periodos[periodo_idx - 1]
+                    periodo = st.session_state.periodos_config[periodo_idx - 1]
                     periodo_nome = periodo['nome']
                     periodo_inicio = periodo['inicio'] * 60
                     periodo_fim = periodo['fim'] * 60
                     
                     dfs_periodo = []
-                    for df, atleta, periodo_nome_orig, start_dt in zip(selected_data, selected_atletas, selected_periodos, selected_start_datetimes):
+                    for df, atleta, periodo_orig, start_dt in zip(selected_data, selected_atletas, selected_periodos_orig, selected_start_datetimes):
                         time_filter = (df['Seconds'] >= max(start_time, periodo_inicio)) & (df['Seconds'] <= min(end_time, periodo_fim))
                         speed_filter = (df['Velocity'] >= speed_range[0]) & (df['Velocity'] <= speed_range[1])
                         df_filtered = df[time_filter & speed_filter].copy()
                         df_filtered['Atleta'] = atleta
-                        df_filtered['Periodo'] = periodo_nome_orig
+                        df_filtered['Periodo'] = periodo_orig
                         df_filtered['Periodo_Analise'] = periodo_nome
                         df_filtered['start_datetime'] = start_dt
                         dfs_periodo.append(df_filtered)
@@ -641,21 +663,24 @@ if uploaded_files and processar:
             if len(dfs_por_periodo) > 1:
                 dfs_por_periodo["Todos períodos combinados"] = df_combinado_total
             
+            # Métricas principais
             primeiro_periodo = list(dfs_por_periodo.keys())[0]
             df_main = dfs_por_periodo[primeiro_periodo]
-            atleta_main = selected_atletas[0]
             
             st.markdown("### 📊 Filtros Aplicados")
             col_f1, col_f2, col_f3, col_f4 = st.columns(4)
             with col_f1:
-                st.info(f"⏱️ {start_horario} → {end_horario}")
+                if reference_dt:
+                    st.info(f"⏱️ {start_horario_global} → {end_horario_global}")
+                else:
+                    st.info(f"⏱️ {start_time_min:.1f} - {end_time_min:.1f} min")
             with col_f2:
                 st.info(f"⚡ {speed_range[0]:.1f} - {speed_range[1]:.1f} km/h")
             with col_f3:
                 total_registros = sum(len(df) for df in dfs_por_periodo.values())
                 st.info(f"📊 {total_registros:,} registros")
             with col_f4:
-                st.info(f"🏟️ {nome_estadio}")
+                st.info(f"🏟️ {st.session_state.get('nome_estadio', 'Não selecionado')}")
             
             st.markdown("### 📈 Métricas de Desempenho por Período")
             
@@ -690,14 +715,17 @@ if uploaded_files and processar:
                 periodo_selecionado_mapa = st.selectbox("Selecionar período para visualizar", options=opcoes_mapa, key="mapa_periodo_select")
                 df_mapa = dfs_por_periodo[periodo_selecionado_mapa]
                 
-                if bounds_estadio:
-                    center_lat, center_lon = centro_estadio
+                bounds = st.session_state.get('bounds_estadio', None)
+                centro = st.session_state.get('centro_estadio', None)
+                
+                if bounds:
+                    center_lat, center_lon = centro
                 else:
                     center_lat, center_lon = df_mapa['Latitude'].mean(), df_mapa['Longitude'].mean()
                 
                 fig_map = go.Figure()
-                if show_field and bounds_estadio:
-                    lat_min, lat_max, lon_min, lon_max = bounds_estadio
+                if show_field and bounds:
+                    lat_min, lat_max, lon_min, lon_max = bounds
                     fig_map.add_shape(type="rect", x0=lon_min, x1=lon_max, y0=lat_min, y1=lat_max,
                                       line=dict(color="white", width=2), fillcolor="rgba(34,139,34,0.2)")
                     fig_map.add_shape(type="line", x0=(lon_min+lon_max)/2, x1=(lon_min+lon_max)/2, y0=lat_min, y1=lat_max,
@@ -720,10 +748,10 @@ if uploaded_files and processar:
                     fig_map.add_trace(go.Scattermapbox(lat=[df_mapa_plot['Latitude'].iloc[-1]], lon=[df_mapa_plot['Longitude'].iloc[-1]],
                                                        mode='markers', marker=dict(size=16, color='red'), name='Fim'))
                 
-                zoom = 18 if bounds_estadio else 15
+                zoom = 18 if bounds else 15
                 fig_map.update_layout(mapbox=dict(style="open-street-map", center=dict(lat=center_lat, lon=center_lon), zoom=zoom),
                                       height=600, margin=dict(l=0, r=0, t=30, b=0),
-                                      title=f"Trajetória de {selected_atletas[0]} - {periodo_selecionado_mapa} - {nome_estadio}")
+                                      title=f"Trajetória de {selected_atletas[0]} - {periodo_selecionado_mapa} - {st.session_state.get('nome_estadio', 'Campo')}")
                 st.plotly_chart(fig_map, use_container_width=True)
             
             # TAB 2: ANÁLISE TÁTICA
@@ -752,7 +780,8 @@ if uploaded_files and processar:
                     st.metric("FC Máxima", f"{df_tat['HeartRate'].max():.0f} bpm")
                 st.markdown("---")
                 
-                if bounds_estadio:
+                bounds = st.session_state.get('bounds_estadio', None)
+                if bounds:
                     if len(df_tat) > 3000:
                         df_tat_sample = df_tat.sample(3000, random_state=42)
                         st.caption(f"📊 Usando amostra de 3.000 pontos (total: {len(df_tat):,})")
@@ -761,7 +790,7 @@ if uploaded_files and processar:
                     
                     campo_x, campo_y = [], []
                     for _, row in df_tat_sample.iterrows():
-                        x, y = converter_gps_para_campo_cached(row['Latitude'], row['Longitude'], bounds_estadio)
+                        x, y = converter_gps_para_campo_cached(row['Latitude'], row['Longitude'], bounds)
                         campo_x.append(x); campo_y.append(y)
                     df_tat_sample['campo_x'], df_tat_sample['campo_y'] = campo_x, campo_y
                 else:
@@ -770,9 +799,9 @@ if uploaded_files and processar:
                 
                 col_lin, col_col = st.columns(2)
                 with col_lin:
-                    num_linhas = st.number_input("Número de linhas (divisão horizontal)", 1, 8, 3)
+                    num_linhas = st.number_input("Número de linhas (divisão horizontal)", 1, 8, 3, key="num_linhas")
                 with col_col:
-                    num_colunas = st.number_input("Número de colunas (divisão vertical)", 1, 8, 3)
+                    num_colunas = st.number_input("Número de colunas (divisão vertical)", 1, 8, 3, key="num_colunas")
                 
                 linhas_bins = np.linspace(X_MIN, X_MAX, num_linhas + 1)
                 colunas_bins = np.linspace(Y_MIN, Y_MAX, num_colunas + 1)
@@ -1112,7 +1141,7 @@ if uploaded_files and processar:
                     st.download_button("📥 Exportar comparação", csv_comp, "comparacao_periodos.csv")
         
         else:
-            st.error("❌ Nenhum arquivo válido processado.")
+            st.info("👈 Configure os filtros na barra lateral e clique em PROCESSAR ANÁLISE para visualizar os resultados.")
 
 else:
     st.markdown("""
@@ -1120,20 +1149,20 @@ else:
     
     ### 🚀 Como usar:
     1. **Faça upload** de arquivos CSV na barra lateral
-    2. **Selecione o estádio** ou use detecção automática
-    3. **Configure os períodos** de análise (horários e duração serão exibidos automaticamente)
-    4. **Escolha os atletas** e períodos
-    5. **Clique em PROCESSAR ANÁLISE** para iniciar
+    2. **Configure o estádio** (ou use detecção automática)
+    3. **Defina os períodos** de análise (horários e duração serão exibidos)
+    4. **Ajuste os filtros** de tempo e velocidade
+    5. **Escolha os atletas** e períodos para análise
+    6. **Clique em PROCESSAR ANÁLISE** para visualizar os resultados
     
     ### ✨ Funcionalidades:
     - 🏟️ **Campo retangular** com dimensões oficiais (105m x 68m)
     - 📐 **Divisões iguais em metros** - zonas com tamanhos exatos
-    - ⏱️ **Períodos personalizados** com horários e duração (prova real antes do processamento)
+    - ⏱️ **Períodos personalizados** com horários e duração (prova real)
     - ⚡ **Perfil Aceleração-Velocidade (ASP)** com eixos invertidos
     - ❤️ **Análise de Performance Cardíaca** com zonas de intensidade
-    - 📊 **Comparação Esportiva** com radar, correlação e variação percentual
-    - 🎯 **Cards de métricas** específicas do período selecionado
+    - 📊 **Comparação Esportiva** com radar e variação percentual
     
     ---
-    **👈 Configure os filtros e clique em PROCESSAR ANÁLISE!**
+    **👈 Faça upload para começar!**
     """)
