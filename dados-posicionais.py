@@ -158,6 +158,447 @@ def calibrar_estadio_from_data(df):
         'lon_max': lon_max + lon_padding
     }
 
+# ==================== FUNÇÕES PARA CADASTRO ASSISTIDO DE ESTÁDIOS ====================
+
+def sugerir_limites_estadio(df):
+    """Sugere limites do estádio baseado nos dados do atleta"""
+    # Usar percentis mais conservadores para o campo
+    lat_min = df['Latitude'].quantile(0.02)
+    lat_max = df['Latitude'].quantile(0.98)
+    lon_min = df['Longitude'].quantile(0.02)
+    lon_max = df['Longitude'].quantile(0.98)
+    
+    # Calcular centro
+    centro_lat = (lat_min + lat_max) / 2
+    centro_lon = (lon_min + lon_max) / 2
+    
+    # Calcular proporção do campo (105m x 68m)
+    # Assumindo que a distância em graus é aproximadamente linear
+    lat_range_degrees = lat_max - lat_min
+    lon_range_degrees = lon_max - lon_min
+    
+    # Ajustar para manter proporção 105:68
+    target_ratio = 105 / 68  # ~1.544
+    current_ratio = lon_range_degrees / lat_range_degrees if lat_range_degrees > 0 else target_ratio
+    
+    if current_ratio > target_ratio:
+        # Muito largo, ajustar latitude
+        new_lat_range = lon_range_degrees / target_ratio
+        lat_min = centro_lat - new_lat_range / 2
+        lat_max = centro_lat + new_lat_range / 2
+    else:
+        # Muito estreito, ajustar longitude
+        new_lon_range = lat_range_degrees * target_ratio
+        lon_min = centro_lon - new_lon_range / 2
+        lon_max = centro_lon + new_lon_range / 2
+    
+    return {
+        'centro_lat': centro_lat,
+        'centro_lon': centro_lon,
+        'lat_min': lat_min,
+        'lat_max': lat_max,
+        'lon_min': lon_min,
+        'lon_max': lon_max
+    }
+
+def calcular_dimensoes_campo(bounds):
+    """Calcula as dimensões aproximadas do campo em metros"""
+    lat_min, lat_max, lon_min, lon_max = bounds
+    
+    # Converter diferenças para metros (aproximado)
+    # 1 grau de latitude ≈ 111,000 metros
+    # 1 grau de longitude ≈ 111,000 * cos(latitude) metros
+    
+    lat_center = (lat_min + lat_max) / 2
+    lat_range_m = (lat_max - lat_min) * 111000
+    lon_range_m = (lon_max - lon_min) * 111000 * np.cos(np.radians(lat_center))
+    
+    return lat_range_m, lon_range_m
+
+def validar_limites_estadio(bounds):
+    """Valida se os limites são consistentes com um campo de futebol"""
+    lat_min, lat_max, lon_min, lon_max = bounds
+    
+    # Verificar se os limites são lógicos
+    if lat_min >= lat_max or lon_min >= lon_max:
+        return False, "Limites inválidos: mínimo deve ser menor que máximo"
+    
+    # Calcular dimensões
+    largura_m, comprimento_m = calcular_dimensoes_campo(bounds)
+    
+    # Campo de futebol: 90-120m x 45-90m (mas vamos usar 105x68 como referência)
+    if largura_m < 50 or largura_m > 150:
+        return False, f"Largura ({largura_m:.0f}m) fora do esperado para um campo de futebol (50-150m)"
+    
+    if comprimento_m < 40 or comprimento_m > 100:
+        return False, f"Comprimento ({comprimento_m:.0f}m) fora do esperado para um campo de futebol (40-100m)"
+    
+    # Verificar proporção (comprimento/largura) - campo deve ser mais comprido que largo
+    ratio = comprimento_m / largura_m
+    if ratio < 1.2 or ratio > 2.0:
+        return False, f"Proporção ({ratio:.2f}) fora do esperado (1.2-2.0)"
+    
+    return True, f"Dimensões válidas: {comprimento_m:.0f}m x {largura_m:.0f}m (proporção {ratio:.2f})"
+
+def obter_coordenadas_google_maps_link():
+    """Gera link para obter coordenadas no Google Maps"""
+    return "https://www.google.com/maps"
+
+def cadastro_assistido_estadio():
+    """Interface para cadastro assistido de estádios"""
+    st.markdown("### 🎯 Cadastro Assistido de Estádio")
+    st.markdown("Escolha um método para cadastrar o estádio com precisão:")
+    
+    metodo = st.radio(
+        "Método de cadastro",
+        options=[
+            "📊 Extrair dos dados carregados (recomendado)",
+            "🗺️ Selecionar no mapa interativo",
+            "✏️ Inserir coordenadas manualmente"
+        ],
+        help="Selecione o método mais conveniente para obter as coordenadas"
+    )
+    
+    dados_calibracao = None
+    
+    if metodo == "📊 Extrair dos dados carregados (recomendado)":
+        st.info("Este método usa os dados de posicionamento do atleta para sugerir os limites do campo.")
+        
+        if 'df_main' in st.session_state:
+            df = st.session_state.df_main
+            
+            # Mostrar estatísticas dos dados
+            st.markdown("#### 📊 Análise dos dados carregados")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Pontos de GPS", len(df))
+                st.metric("Latitude média", f"{df['Latitude'].mean():.6f}")
+            with col2:
+                st.metric("Distância percorrida", f"{df['Odometer'].max() - df['Odometer'].min():.0f} m")
+                st.metric("Longitude média", f"{df['Longitude'].mean():.6f}")
+            
+            # Sugerir limites
+            limites_sugeridos = sugerir_limites_estadio(df)
+            
+            st.markdown("#### 🎯 Limites sugeridos automaticamente")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**Latitude**")
+                lat_min = st.number_input("Mínima", value=limites_sugeridos['lat_min'], format="%.8f", key="lat_min_auto")
+                lat_max = st.number_input("Máxima", value=limites_sugeridos['lat_max'], format="%.8f", key="lat_max_auto")
+            with col2:
+                st.markdown("**Longitude**")
+                lon_min = st.number_input("Mínima", value=limites_sugeridos['lon_min'], format="%.8f", key="lon_min_auto")
+                lon_max = st.number_input("Máxima", value=limites_sugeridos['lon_max'], format="%.8f", key="lon_max_auto")
+            
+            # Validar limites
+            bounds = (lat_min, lat_max, lon_min, lon_max)
+            valido, mensagem = validar_limites_estadio(bounds)
+            
+            if valido:
+                st.success(f"✅ {mensagem}")
+            else:
+                st.warning(f"⚠️ {mensagem}")
+            
+            # Visualização prévia
+            st.markdown("#### 🗺️ Visualização dos limites")
+            
+            fig_preview = go.Figure()
+            
+            # Adicionar pontos do percurso
+            fig_preview.add_trace(go.Scatter(
+                x=df['Longitude'],
+                y=df['Latitude'],
+                mode='markers',
+                marker=dict(size=2, color='blue', opacity=0.5),
+                name='Percurso do atleta',
+                hoverinfo='skip'
+            ))
+            
+            # Adicionar retângulo do campo
+            fig_preview.add_shape(
+                type="rect",
+                x0=lon_min, x1=lon_max,
+                y0=lat_min, y1=lat_max,
+                line=dict(color="red", width=2, dash="dash"),
+                fillcolor="rgba(255,0,0,0.1)",
+                layer="above"
+            )
+            
+            # Adicionar centro
+            centro_lat = (lat_min + lat_max) / 2
+            centro_lon = (lon_min + lon_max) / 2
+            
+            fig_preview.add_trace(go.Scatter(
+                x=[centro_lon],
+                y=[centro_lat],
+                mode='markers',
+                marker=dict(size=10, color='red', symbol='x'),
+                name='Centro do campo',
+                hoverinfo='text',
+                text=f"Centro: {centro_lat:.6f}, {centro_lon:.6f}"
+            ))
+            
+            fig_preview.update_layout(
+                title="Visualização dos limites do campo",
+                xaxis_title="Longitude",
+                yaxis_title="Latitude",
+                height=500,
+                hovermode='closest'
+            )
+            
+            st.plotly_chart(fig_preview, use_container_width=True)
+            
+            if st.button("✅ Usar estes limites", type="primary"):
+                dados_calibracao = {
+                    'centro_lat': centro_lat,
+                    'centro_lon': centro_lon,
+                    'lat_min': lat_min,
+                    'lat_max': lat_max,
+                    'lon_min': lon_min,
+                    'lon_max': lon_max,
+                    'orientacao': 0
+                }
+                st.session_state.dados_calibracao_temp = dados_calibracao
+                st.success("Limites salvos! Preencha os dados do estádio abaixo.")
+        
+        else:
+            st.warning("⚠️ Nenhum dado de atleta carregado. Faça upload dos arquivos primeiro.")
+    
+    elif metodo == "🗺️ Selecionar no mapa interativo":
+        st.info("Clique nos 4 cantos do campo no mapa para definir os limites.")
+        
+        # Coordenadas iniciais (podem ser ajustadas pelo usuário)
+        if 'df_main' in st.session_state:
+            center_lat = st.session_state.df_main['Latitude'].mean()
+            center_lon = st.session_state.df_main['Longitude'].mean()
+        else:
+            center_lat = -23.5505
+            center_lon = -46.6333
+        
+        st.markdown("#### 📍 Instruções:")
+        st.markdown("""
+        1. Use o mapa abaixo para encontrar o estádio
+        2. Anote as coordenadas dos **4 cantos do campo**:
+           - Canto superior esquerdo (NO)
+           - Canto superior direito (NE)
+           - Canto inferior esquerdo (SO)
+           - Canto inferior direito (SE)
+        3. Preencha os campos abaixo com as coordenadas
+        """)
+        
+        # Link para Google Maps
+        st.markdown(f"🔗 **Dica:** Abra o [Google Maps]({obter_coordenadas_google_maps_link()}) em outra aba para obter as coordenadas com precisão")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Canto Superior Esquerdo (NO)**")
+            lat_no = st.number_input("Latitude", value=center_lat + 0.001, format="%.8f", key="lat_no")
+            lon_no = st.number_input("Longitude", value=center_lon - 0.001, format="%.8f", key="lon_no")
+            
+            st.markdown("**Canto Inferior Esquerdo (SO)**")
+            lat_so = st.number_input("Latitude", value=center_lat - 0.001, format="%.8f", key="lat_so")
+            lon_so = st.number_input("Longitude", value=center_lon - 0.001, format="%.8f", key="lon_so")
+        
+        with col2:
+            st.markdown("**Canto Superior Direito (NE)**")
+            lat_ne = st.number_input("Latitude", value=center_lat + 0.001, format="%.8f", key="lat_ne")
+            lon_ne = st.number_input("Longitude", value=center_lon + 0.001, format="%.8f", key="lon_ne")
+            
+            st.markdown("**Canto Inferior Direito (SE)**")
+            lat_se = st.number_input("Latitude", value=center_lat - 0.001, format="%.8f", key="lat_se")
+            lon_se = st.number_input("Longitude", value=center_lon + 0.001, format="%.8f", key="lon_se")
+        
+        # Calcular limites a partir dos cantos
+        lat_min = min(lat_no, lat_ne, lat_so, lat_se)
+        lat_max = max(lat_no, lat_ne, lat_so, lat_se)
+        lon_min = min(lon_no, lon_ne, lon_so, lon_se)
+        lon_max = max(lon_no, lon_ne, lon_so, lon_se)
+        
+        centro_lat = (lat_min + lat_max) / 2
+        centro_lon = (lon_min + lon_max) / 2
+        
+        # Visualização
+        st.markdown("#### 🗺️ Visualização dos pontos selecionados")
+        
+        fig_preview = go.Figure()
+        
+        # Adicionar os 4 pontos
+        fig_preview.add_trace(go.Scatter(
+            x=[lon_no, lon_ne, lon_se, lon_so, lon_no],
+            y=[lat_no, lat_ne, lat_se, lat_so, lat_no],
+            mode='lines+markers',
+            marker=dict(size=10, color='red'),
+            line=dict(color='red', width=2, dash='dash'),
+            name='Limites do campo',
+            text=['NO', 'NE', 'SE', 'SO', 'NO'],
+            textposition='top center'
+        ))
+        
+        # Adicionar centro
+        fig_preview.add_trace(go.Scatter(
+            x=[centro_lon],
+            y=[centro_lat],
+            mode='markers',
+            marker=dict(size=12, color='green', symbol='x'),
+            name='Centro'
+        ))
+        
+        fig_preview.update_layout(
+            title="Visualização dos limites do campo",
+            xaxis_title="Longitude",
+            yaxis_title="Latitude",
+            height=500
+        )
+        
+        st.plotly_chart(fig_preview, use_container_width=True)
+        
+        # Validar
+        bounds = (lat_min, lat_max, lon_min, lon_max)
+        valido, mensagem = validar_limites_estadio(bounds)
+        
+        if valido:
+            st.success(f"✅ {mensagem}")
+        else:
+            st.warning(f"⚠️ {mensagem}")
+        
+        if st.button("✅ Usar estes limites", type="primary"):
+            dados_calibracao = {
+                'centro_lat': centro_lat,
+                'centro_lon': centro_lon,
+                'lat_min': lat_min,
+                'lat_max': lat_max,
+                'lon_min': lon_min,
+                'lon_max': lon_max,
+                'orientacao': 0
+            }
+            st.session_state.dados_calibracao_temp = dados_calibracao
+            st.success("Limites salvos! Preencha os dados do estádio abaixo.")
+    
+    elif metodo == "✏️ Inserir coordenadas manualmente":
+        st.info("Insira as coordenadas dos limites do campo manualmente.")
+        
+        st.markdown("#### 📐 Coordenadas dos limites")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Limites de Latitude**")
+            lat_min = st.number_input("Latitude mínima (Sul)", value=0.0, format="%.8f", key="lat_min_manual")
+            lat_max = st.number_input("Latitude máxima (Norte)", value=0.0, format="%.8f", key="lat_max_manual")
+            
+            st.markdown("**Centro do campo**")
+            centro_lat = st.number_input("Latitude do centro", value=0.0, format="%.8f", key="centro_lat_manual")
+        
+        with col2:
+            st.markdown("**Limites de Longitude**")
+            lon_min = st.number_input("Longitude mínima (Oeste)", value=0.0, format="%.8f", key="lon_min_manual")
+            lon_max = st.number_input("Longitude máxima (Leste)", value=0.0, format="%.8f", key="lon_max_manual")
+            
+            st.markdown("**Centro do campo**")
+            centro_lon = st.number_input("Longitude do centro", value=0.0, format="%.8f", key="centro_lon_manual")
+        
+        # Validar
+        if lat_min != 0 and lat_max != 0 and lon_min != 0 and lon_max != 0:
+            bounds = (lat_min, lat_max, lon_min, lon_max)
+            valido, mensagem = validar_limites_estadio(bounds)
+            
+            if valido:
+                st.success(f"✅ {mensagem}")
+                
+                if st.button("✅ Usar estes limites", type="primary"):
+                    dados_calibracao = {
+                        'centro_lat': centro_lat if centro_lat != 0 else (lat_min + lat_max) / 2,
+                        'centro_lon': centro_lon if centro_lon != 0 else (lon_min + lon_max) / 2,
+                        'lat_min': lat_min,
+                        'lat_max': lat_max,
+                        'lon_min': lon_min,
+                        'lon_max': lon_max,
+                        'orientacao': 0
+                    }
+                    st.session_state.dados_calibracao_temp = dados_calibracao
+                    st.success("Limites salvos! Preencha os dados do estádio abaixo.")
+            else:
+                st.warning(f"⚠️ {mensagem}")
+        else:
+            st.info("Preencha todas as coordenadas para validar os limites.")
+    
+    return dados_calibracao
+
+# Modifique a função de cadastro de estádio na sidebar para usar o cadastro assistido
+def interface_cadastro_estadio():
+    """Interface para cadastro de novo estádio com assistência"""
+    st.markdown("### 📝 Cadastrar novo estádio")
+    
+    # Dados básicos
+    col1, col2 = st.columns(2)
+    with col1:
+        nome_novo = st.text_input("Nome do estádio*", placeholder="Ex: Maracanã")
+    with col2:
+        cidade_nova = st.text_input("Cidade", placeholder="Ex: Rio de Janeiro")
+    
+    pais_novo = st.text_input("País", placeholder="Ex: Brasil")
+    
+    st.markdown("---")
+    
+    # Cadastro assistido dos limites
+    st.markdown("### 🗺️ Definir limites do campo")
+    
+    # Usar cadastro assistido
+    dados_calibracao = cadastro_assistido_estadio()
+    
+    # Se já temos dados de calibração temporários
+    if 'dados_calibracao_temp' in st.session_state and dados_calibracao is None:
+        dados_calibracao = st.session_state.dados_calibracao_temp
+    
+    # Orientação (opcional)
+    if dados_calibracao:
+        st.markdown("---")
+        st.markdown("### 🔄 Configurações adicionais")
+        orientacao = st.number_input(
+            "Orientação do campo (graus)", 
+            value=0.0, 
+            step=1.0,
+            help="Rotação do campo em relação ao norte. 0 = alinhado com norte-sul"
+        )
+        dados_calibracao['orientacao'] = orientacao
+    
+    # Botão para salvar
+    if st.button("💾 Salvar estádio", type="primary", use_container_width=True):
+        if nome_novo and dados_calibracao:
+            # Verificar se o estádio já existe
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM estadios WHERE nome = ?", (nome_novo,))
+            existe = cursor.fetchone()
+            conn.close()
+            
+            if existe:
+                st.error(f"❌ Estádio '{nome_novo}' já está cadastrado!")
+            else:
+                adicionar_estadio(
+                    nome_novo, 
+                    cidade_nova, 
+                    pais_novo, 
+                    dados_calibracao
+                )
+                st.success(f"✅ Estádio {nome_novo} cadastrado com sucesso!")
+                
+                # Limpar dados temporários
+                if 'dados_calibracao_temp' in st.session_state:
+                    del st.session_state.dados_calibracao_temp
+                
+                # Aguardar um pouco e recarregar
+                import time
+                time.sleep(1)
+                st.rerun()
+        elif not nome_novo:
+            st.error("❌ Nome do estádio é obrigatório!")
+        elif not dados_calibracao:
+            st.error("❌ Defina os limites do campo primeiro!")
+
 # ==================== FUNÇÕES DE ENTROPIA AMOSTRAL OTIMIZADA ====================
 
 @st.cache_data(ttl=3600)
