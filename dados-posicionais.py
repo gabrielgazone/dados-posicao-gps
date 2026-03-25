@@ -24,16 +24,13 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS personalizado para layout inovador e impactante
+# CSS personalizado
 st.markdown("""
 <style>
-    /* Animações e efeitos */
     @keyframes fadeIn {
         from { opacity: 0; transform: translateY(20px); }
         to { opacity: 1; transform: translateY(0); }
     }
-    
-    /* Cards de métricas com efeito neon */
     .metric-card {
         background: linear-gradient(135deg, rgba(26, 26, 46, 0.95) 0%, rgba(22, 33, 62, 0.95) 100%);
         border-radius: 20px;
@@ -65,8 +62,6 @@ st.markdown("""
         letter-spacing: 2px;
         margin-top: 8px;
     }
-    
-    /* Tabs personalizadas com efeito de campo de futebol */
     .stTabs [data-baseweb="tab-list"] {
         gap: 12px;
         background: rgba(0, 0, 0, 0.3);
@@ -90,8 +85,6 @@ st.markdown("""
         color: white;
         box-shadow: 0 0 20px rgba(0, 210, 255, 0.5);
     }
-    
-    /* Headers com efeito de gramado */
     .main-header {
         background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 50%, #00ff88 100%);
         -webkit-background-clip: text;
@@ -110,13 +103,6 @@ st.markdown("""
         margin-bottom: 30px;
         letter-spacing: 1px;
     }
-    
-    /* Sidebar estilizada */
-    .css-1d391kg, .css-12oz5g7 {
-        background: linear-gradient(180deg, #0f0f1a 0%, #1a1a2e 100%);
-    }
-    
-    /* Botão processar */
     .stButton > button {
         background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
         border: none;
@@ -131,28 +117,10 @@ st.markdown("""
         transform: scale(1.02);
         box-shadow: 0 8px 25px rgba(0, 210, 255, 0.5);
     }
-    
-    /* Informações de períodos */
-    .period-info {
-        background: rgba(0, 210, 255, 0.1);
-        border-left: 3px solid #00d2ff;
-        padding: 8px 12px;
-        border-radius: 8px;
-        margin-top: 8px;
-        font-size: 0.8rem;
-    }
-    
-    /* Radar chart container */
-    .radar-container {
-        background: linear-gradient(135deg, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0.3) 100%);
-        border-radius: 20px;
-        padding: 20px;
-        border: 1px solid rgba(0, 210, 255, 0.2);
-    }
 </style>
 """, unsafe_allow_html=True)
 
-# Título do app com estilo
+# Título do app
 st.markdown('<p class="main-header">⚽ ScoutLab | Análise de Performance Esportiva</p>', unsafe_allow_html=True)
 st.markdown('<p class="sub-header">Plataforma Inteligente para Análise de Movimento e Desempenho Atlético</p>', unsafe_allow_html=True)
 st.markdown("---")
@@ -165,13 +133,15 @@ X_MAX = CAMPO_COMPRIMENTO / 2
 Y_MIN = -CAMPO_LARGURA / 2
 Y_MAX = CAMPO_LARGURA / 2
 
-# ==================== FUNÇÕES ====================
+# ==================== FUNÇÃO DO PERFIL ACELERAÇÃO-VELOCIDADE ====================
 
-@st.cache_data(ttl=3600)
-def fit_velocidade_aceleracao_cached(velocidades_tuple, aceleracoes_tuple):
-    velocidades = np.array(velocidades_tuple)
-    aceleracoes = np.array(aceleracoes_tuple)
-    
+def fit_velocidade_aceleracao(velocidades, aceleracoes):
+    """
+    Ajusta a curva de relação Aceleração-Velocidade baseada no modelo linear:
+    a(v) = a0 - (a0/v0) * v
+    Retorna os coeficientes da regressão linear e o R²
+    """
+    # Remover valores inválidos
     mask = (velocidades > 0) & (aceleracoes > -5) & (aceleracoes < 10) & (~np.isnan(velocidades)) & (~np.isnan(aceleracoes))
     v_clean = velocidades[mask]
     a_clean = aceleracoes[mask]
@@ -180,28 +150,28 @@ def fit_velocidade_aceleracao_cached(velocidades_tuple, aceleracoes_tuple):
         return None
     
     try:
-        def modelo_linear(v, a0, v0):
-            return a0 - (a0 / v0) * v
+        # Regressão linear: a = b + m * v
+        # Onde m é negativo (a diminui com v)
+        from scipy import stats
+        slope, intercept, r_value, p_value, std_err = stats.linregress(v_clean, a_clean)
         
-        popt, _ = curve_fit(modelo_linear, v_clean, a_clean, p0=[5, 8], maxfev=5000)
-        a0, v0 = popt
+        # slope = -a0/v0, intercept = a0
+        a0 = intercept
+        v0 = -a0 / slope if slope != 0 else 0
+        r2 = r_value ** 2
         
         p_max = a0 * v0 / 4
         v_max = np.max(v_clean)
         
-        residuos = a_clean - modelo_linear(v_clean, a0, v0)
-        ss_res = np.sum(residuos**2)
-        ss_tot = np.sum((a_clean - np.mean(a_clean))**2)
-        r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-        
         return {
             'a0': float(a0),
             'v0': float(v0),
+            'slope': float(slope),
+            'intercept': float(intercept),
+            'r2': float(r2),
             'v_max': float(v_max),
             'p_max': float(p_max),
-            'r2': float(r2),
-            'n_points': len(v_clean),
-            'slope': -a0 / v0 if v0 > 0 else 0
+            'n_points': len(v_clean)
         }
     except:
         return None
@@ -217,14 +187,15 @@ def calcular_asp_metrics(df):
         v_ms = df_sprints['Velocity'].values / 3.6
     
     a_ms2 = df_sprints['Acceleration'].values
-    result = fit_velocidade_aceleracao_cached(tuple(v_ms), tuple(a_ms2))
+    result = fit_velocidade_aceleracao(v_ms, a_ms2)
     
     if result:
         result['v_medio'] = np.mean(v_ms)
         result['a_medio'] = np.mean(a_ms2)
         result['num_sprints'] = len(df_sprints)
-        result['f0'] = result['a0']
     return result
+
+# ==================== FUNÇÕES DE CONVERSÃO ====================
 
 @st.cache_data(ttl=3600)
 def converter_gps_para_campo_cached(lat, lon, bounds):
@@ -526,7 +497,6 @@ if uploaded_files:
                     st.session_state.nome_estadio = nome_estadio
                     st.sidebar.success(f"✅ Estádio: {nome_estadio}")
             elif selecao_estadio == "Detectar automaticamente":
-                # Detecção automática baseada nos dados
                 df_calibracao = st.session_state.dados_carregados[0]
                 lat_min = df_calibracao['Latitude'].quantile(0.01)
                 lat_max = df_calibracao['Latitude'].quantile(0.99)
@@ -635,7 +605,6 @@ if uploaded_files:
                 
                 st.session_state.periodos_config[i] = {"nome": novo_nome, "inicio": novo_inicio, "fim": novo_fim}
                 
-                # Prova real
                 if reference_dt:
                     inicio_horario = seconds_to_time_str(novo_inicio * 60, reference_dt)
                     fim_horario = seconds_to_time_str(novo_fim * 60, reference_dt)
@@ -653,7 +622,6 @@ if uploaded_files:
         st.sidebar.markdown("---")
         st.sidebar.header("⚡ 4. Filtros")
         
-        # Filtro Temporal Global
         min_time = float('inf')
         max_time = 0
         for df in st.session_state.dados_carregados:
@@ -684,7 +652,6 @@ if uploaded_files:
             start_time_min, end_time_min = tempo_range
             start_time, end_time = start_time_min * 60, end_time_min * 60
         
-        # Filtro Velocidade
         max_speed = max([df['Velocity'].max() for df in st.session_state.dados_carregados])
         speed_range = st.sidebar.slider("Velocidade (km/h)", 
                                         min_value=0.0, 
@@ -742,7 +709,7 @@ if uploaded_files:
             selected_periodos_orig = [st.session_state.periodos_orig[i] for i in selected_indices]
             selected_start_datetimes = [st.session_state.start_datetimes[i] for i in selected_indices]
             
-            # Filtrar dados por período selecionado
+            # Filtrar dados
             dfs_por_periodo = {}
             df_combinado_total = pd.DataFrame()
             distancias_por_periodo = {}
@@ -809,13 +776,11 @@ if uploaded_files:
                 st.warning("⚠️ Nenhum dado encontrado nos períodos selecionados.")
                 st.stop()
             
-            # Adicionar período combinado se houver múltiplos períodos selecionados
             if len(periodos_analise_indices) > 1 and 0 not in periodos_analise_indices:
                 dfs_por_periodo["Todos períodos combinados"] = df_combinado_total
                 distancias_por_periodo["Todos períodos combinados"] = sum(distancias_por_periodo.get(p, 0) for p in dfs_por_periodo.keys() if p != "Todos períodos combinados")
                 tempos_por_periodo["Todos períodos combinados"] = sum(tempos_por_periodo.get(p, 0) for p in dfs_por_periodo.keys() if p != "Todos períodos combinados")
             
-            # Salvar dados processados no session_state para uso nas abas
             st.session_state.dfs_por_periodo = dfs_por_periodo
             st.session_state.distancias_por_periodo = distancias_por_periodo
             st.session_state.tempos_por_periodo = tempos_por_periodo
@@ -829,14 +794,12 @@ if uploaded_files:
             tempos_por_periodo = st.session_state.tempos_por_periodo
             selected_atletas = st.session_state.selected_atletas
             
-            # Métricas principais com cards estilizados
+            # Métricas principais
             st.markdown("### 📊 Métricas de Desempenho por Período")
             
-            # Cards em grid
             for periodo_nome, df_periodo in dfs_por_periodo.items():
                 col1, col2, col3, col4, col5 = st.columns(5)
                 
-                # Distância corrigida
                 dist_corrigida = distancias_por_periodo.get(periodo_nome, 0)
                 tempo_corrigido = tempos_por_periodo.get(periodo_nome, 0)
                 tempo_min = tempo_corrigido / 60
@@ -950,7 +913,6 @@ if uploaded_files:
                 df_tat = dfs_por_periodo[periodo_tatica]
                 start_dt_tat = df_tat['start_datetime'].iloc[0] if len(df_tat) > 0 else None
                 
-                # Cards de métricas do período
                 st.markdown(f"### 📊 Métricas do Período: {periodo_tatica}")
                 col_metric1, col_metric2, col_metric3, col_metric4, col_metric5 = st.columns(5)
                 with col_metric1:
@@ -1100,7 +1062,7 @@ if uploaded_files:
                 csv_tatico = zona_metrics.reset_index().to_csv(index=False)
                 st.download_button("📥 Exportar análise tática", csv_tatico, f"analise_tatica_{selected_atletas[0]}_{periodo_tatica}.csv")
             
-            # TAB 3: PERFIL ACELERAÇÃO-VELOCIDADE (CORRIGIDO)
+            # TAB 3: PERFIL ACELERAÇÃO-VELOCIDADE (CORRIGIDO - COMO NA IMAGEM)
             with tab3:
                 st.subheader("⚡ Perfil Aceleração-Velocidade (Acceleration-Speed Profile)")
                 
@@ -1130,16 +1092,13 @@ if uploaded_files:
                     st.warning("⚠️ Dados insuficientes para calcular o Perfil Aceleração-Velocidade. São necessários pelo menos 10 pontos com aceleração positiva e velocidade > 0.")
                 else:
                     st.markdown("### 📈 Curva Aceleração-Velocidade (ASP)")
-                    st.markdown("**Relação entre Aceleração (m/s²) e Velocidade (m/s) - Modelo Linear**")
+                    st.markdown("**Relação entre Velocidade (m/s) e Aceleração (m/s²) - Modelo Linear**")
                     
-                    fig_asp = go.Figure()
-                    
-                    # Cores para os diferentes períodos
-                    cores = ['#00d2ff', '#ff6b6b', '#4ecdc4', '#ffe66d', '#9b59b6', '#e74c3c']
-                    
-                    for idx, (nome, metrics) in enumerate(asp_results.items()):
-                        df_periodo = dfs_por_periodo[nome]
-                        df_sprints = df_periodo[(df_periodo['Acceleration'] > 0) & (df_periodo['Velocity'] > 0)].copy()
+                    # Selecionar período atual
+                    metrics = asp_results.get(periodo_asp)
+                    if metrics:
+                        df_sprints = dfs_por_periodo[periodo_asp]
+                        df_sprints = df_sprints[(df_sprints['Acceleration'] > 0) & (df_sprints['Velocity'] > 0)].copy()
                         
                         # Converter velocidade para m/s
                         if df_sprints['Velocity'].max() < 50:
@@ -1149,147 +1108,159 @@ if uploaded_files:
                         
                         a_ms2 = df_sprints['Acceleration'].values
                         
-                        # Amostragem para performance
-                        if len(v_ms) > 1000:
-                            idx_sample = np.random.choice(len(v_ms), 1000, replace=False)
-                            v_ms_sample = v_ms[idx_sample]
-                            a_ms2_sample = a_ms2[idx_sample]
-                        else:
-                            v_ms_sample = v_ms
-                            a_ms2_sample = a_ms2
+                        # Criar figura
+                        fig_asp = go.Figure()
                         
-                        # Pontos observados
+                        # 1. Plotar todos os pontos (como na imagem)
                         fig_asp.add_trace(go.Scatter(
-                            x=a_ms2_sample, y=v_ms_sample,
+                            x=v_ms, y=a_ms2,
                             mode='markers',
-                            name=f'{nome} (dados)',
-                            marker=dict(size=5, color=cores[idx % len(cores)], opacity=0.4),
-                            hovertemplate='Aceleração: %{x:.2f} m/s²<br>Velocidade: %{y:.2f} m/s<extra></extra>'
+                            name='In situ raw data, all points',
+                            marker=dict(
+                                size=6,
+                                color='rgba(0, 210, 255, 0.6)',
+                                symbol='circle',
+                                line=dict(width=1, color='white')
+                            ),
+                            hovertemplate='Velocidade: %{x:.2f} m/s<br>Aceleração: %{y:.2f} m/s²<extra></extra>'
                         ))
                         
-                        # Curva ajustada (modelo linear: v = v0 * (1 - a/a0))
-                        a_curve = np.linspace(0, metrics['a0'], 100)
-                        v_curve = metrics['v0'] * (1 - a_curve / metrics['a0'])
+                        # 2. Curva de regressão linear
+                        v_fit = np.linspace(0, max(v_ms) * 1.05, 100)
+                        a_fit = metrics['intercept'] + metrics['slope'] * v_fit
                         
                         fig_asp.add_trace(go.Scatter(
-                            x=a_curve, y=v_curve,
+                            x=v_fit, y=a_fit,
                             mode='lines',
-                            name=f'{nome} (ajuste)',
-                            line=dict(width=3, color=cores[idx % len(cores)], dash='solid'),
-                            hovertemplate='Modelo: v = {v0:.2f} × (1 - a/{a0:.2f})<br>a: %{{x:.2f}} m/s²<br>v: %{{y:.2f}} m/s<extra></extra>'.format(v0=metrics['v0'], a0=metrics['a0'])
+                            name='Acceleration-speed profile',
+                            line=dict(color='red', width=3, dash='solid'),
+                            hovertemplate='Modelo: a = {intercept:.2f} + {slope:.2f}·v<br>v: %{{x:.2f}} m/s<br>a: %{{y:.2f}} m/s²<extra></extra>'.format(
+                                intercept=metrics['intercept'], slope=metrics['slope']
+                            )
                         ))
                         
-                        # Marcar ponto de velocidade máxima
+                        # 3. Destacar ponto A₀ (aceleração máxima)
                         fig_asp.add_trace(go.Scatter(
-                            x=[0], y=[metrics['v_max']],
+                            x=[0], y=[metrics['a0']],
                             mode='markers+text',
-                            marker=dict(size=12, color=cores[idx % len(cores)], symbol='star', line=dict(width=1, color='white')),
-                            text=[f"Vₘₐₓ: {metrics['v_max']:.2f} m/s"],
+                            marker=dict(size=14, color='green', symbol='circle', line=dict(width=2, color='white')),
+                            text=[f"A₀ = {metrics['a0']:.2f} m/s²"],
                             textposition='top right',
-                            name=f'{nome} - Vₘₐₓ',
-                            showlegend=False,
-                            hovertemplate='Velocidade Máxima Observada: %{y:.2f} m/s<extra></extra>'
+                            textfont=dict(size=12, color='white', family='Arial Black'),
+                            name='A₀ - Aceleração Máxima',
+                            hovertemplate='Aceleração Máxima: %{y:.2f} m/s²<extra></extra>'
                         ))
-                    
-                    # Configurar layout com eixos corrigidos
-                    fig_asp.update_layout(
-                        title=dict(
-                            text="<b>Perfil Aceleração-Velocidade (ASP)</b><br><sup>Relação entre Aceleração e Velocidade em Sprints</sup>",
-                            x=0.5,
-                            font=dict(size=18)
-                        ),
-                        xaxis=dict(
-                            title="<b>Aceleração (m/s²)</b>",
-                            title_font=dict(size=14),
-                            gridcolor='rgba(255,255,255,0.1)',
-                            zerolinecolor='rgba(255,255,255,0.2)',
-                            range=[-0.5, max([metrics['a0'] for metrics in asp_results.values()]) * 1.1]
-                        ),
-                        yaxis=dict(
-                            title="<b>Velocidade (m/s)</b>",
-                            title_font=dict(size=14),
-                            gridcolor='rgba(255,255,255,0.1)',
-                            zerolinecolor='rgba(255,255,255,0.2)',
-                            range=[0, max([metrics['v0'] for metrics in asp_results.values()]) * 1.1]
-                        ),
-                        height=550,
-                        legend=dict(
-                            orientation="h",
-                            yanchor="bottom",
-                            y=1.02,
-                            xanchor="center",
-                            x=0.5,
-                            bgcolor='rgba(0,0,0,0.5)',
-                            font=dict(size=11)
-                        ),
-                        plot_bgcolor='rgba(0,0,0,0.2)',
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        hovermode='closest'
-                    )
-                    
-                    st.plotly_chart(fig_asp, use_container_width=True)
-                    
-                    # Tabela de métricas ASP
-                    st.markdown("### 📊 Métricas do Perfil Aceleração-Velocidade")
-                    
-                    asp_df = pd.DataFrame(asp_results).T
-                    asp_df = asp_df[['a0', 'v0', 'v_max', 'p_max', 'r2']].round(2)
-                    asp_df.columns = ['Aceleração Máx (m/s²)', 'Velocidade Teórica (m/s)', 'Velocidade Máx (m/s)', 'Potência Máx (W/kg)', 'R²']
-                    
-                    # Adicionar indicador de qualidade
-                    def qualidade_r2(r2):
-                        if r2 >= 0.8:
-                            return '🟢 Excelente'
-                        elif r2 >= 0.6:
-                            return '🟡 Bom'
-                        elif r2 >= 0.4:
-                            return '🟠 Moderado'
-                        else:
-                            return '🔴 Baixo'
-                    
-                    asp_df['Qualidade do Ajuste'] = asp_df['R²'].apply(qualidade_r2)
-                    
-                    st.dataframe(asp_df.style.format({
-                        'Aceleração Máx (m/s²)': '{:.2f}',
-                        'Velocidade Teórica (m/s)': '{:.2f}',
-                        'Velocidade Máx (m/s)': '{:.2f}',
-                        'Potência Máx (W/kg)': '{:.2f}',
-                        'R²': '{:.3f}'
-                    }).background_gradient(subset=['R²'], cmap='RdYlGn', vmin=0, vmax=1), use_container_width=True)
-                    
-                    # Cards de interpretação
-                    st.markdown("### 🎯 Interpretação dos Resultados")
-                    col_asp1, col_asp2, col_asp3 = st.columns(3)
-                    
-                    with col_asp1:
-                        a0_medio = asp_df['Aceleração Máx (m/s²)'].mean()
-                        st.markdown(f"""
-                        <div class="metric-card">
-                            <div class="metric-value">{a0_medio:.2f}</div>
-                            <div class="metric-label">Aceleração Média (m/s²)</div>
-                            <div style="font-size:0.7rem; margin-top:8px;">⚡ Capacidade de aceleração inicial</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    
-                    with col_asp2:
-                        v0_medio = asp_df['Velocidade Teórica (m/s)'].mean()
-                        st.markdown(f"""
-                        <div class="metric-card">
-                            <div class="metric-value">{v0_medio:.2f}</div>
-                            <div class="metric-label">Velocidade Teórica (m/s)</div>
-                            <div style="font-size:0.7rem; margin-top:8px;">🏃 Capacidade de alta velocidade</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    
-                    with col_asp3:
-                        p_max_medio = asp_df['Potência Máx (W/kg)'].mean()
-                        st.markdown(f"""
-                        <div class="metric-card">
-                            <div class="metric-value">{p_max_medio:.2f}</div>
-                            <div class="metric-label">Potência Máx (W/kg)</div>
-                            <div style="font-size:0.7rem; margin-top:8px;">💪 Explosividade muscular</div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        
+                        # 4. Adicionar equação da reta e R²
+                        equation_text = f"y = {metrics['slope']:.3f}x + {metrics['intercept']:.2f}<br>R² = {metrics['r2']:.3f}"
+                        
+                        fig_asp.add_annotation(
+                            x=0.95, y=0.95,
+                            xref="paper", yref="paper",
+                            text=equation_text,
+                            showarrow=False,
+                            font=dict(size=14, color='white', family='monospace'),
+                            bgcolor='rgba(0,0,0,0.6)',
+                            borderpad=10,
+                            bordercolor='white',
+                            borderwidth=1
+                        )
+                        
+                        # Configurar layout
+                        fig_asp.update_layout(
+                            title=dict(
+                                text=f"<b>Perfil Aceleração-Velocidade - {periodo_asp}</b>",
+                                x=0.5,
+                                font=dict(size=18)
+                            ),
+                            xaxis=dict(
+                                title="<b>Running Speed (m/s)</b>",
+                                title_font=dict(size=14),
+                                gridcolor='rgba(255,255,255,0.1)',
+                                zerolinecolor='rgba(255,255,255,0.2)',
+                                range=[0, max(v_ms) * 1.05],
+                                dtick=1
+                            ),
+                            yaxis=dict(
+                                title="<b>Acceleration (m/s²)</b>",
+                                title_font=dict(size=14),
+                                gridcolor='rgba(255,255,255,0.1)',
+                                zerolinecolor='rgba(255,255,255,0.2)',
+                                range=[0, max(a_ms2) * 1.1],
+                                dtick=1
+                            ),
+                            height=550,
+                            legend=dict(
+                                orientation="h",
+                                yanchor="bottom",
+                                y=1.02,
+                                xanchor="center",
+                                x=0.5,
+                                bgcolor='rgba(0,0,0,0.5)',
+                                font=dict(size=11)
+                            ),
+                            plot_bgcolor='rgba(0,0,0,0.2)',
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            hovermode='closest'
+                        )
+                        
+                        st.plotly_chart(fig_asp, use_container_width=True)
+                        
+                        # Tabela de métricas ASP
+                        st.markdown("### 📊 Métricas do Perfil Aceleração-Velocidade")
+                        
+                        asp_df = pd.DataFrame(asp_results).T
+                        asp_df = asp_df[['a0', 'v0', 'v_max', 'p_max', 'r2', 'slope']].round(3)
+                        asp_df.columns = ['A₀ (m/s²)', 'V₀ (m/s)', 'Vₘₐₓ (m/s)', 'Pₘₐₓ (W/kg)', 'R²', 'Slope']
+                        
+                        # Adicionar indicador de qualidade
+                        def qualidade_r2(r2):
+                            if r2 >= 0.8:
+                                return '🟢 Excelente'
+                            elif r2 >= 0.6:
+                                return '🟡 Bom'
+                            elif r2 >= 0.4:
+                                return '🟠 Moderado'
+                            else:
+                                return '🔴 Baixo'
+                        
+                        asp_df['Qualidade'] = asp_df['R²'].apply(qualidade_r2)
+                        
+                        st.dataframe(asp_df, use_container_width=True)
+                        
+                        # Cards de interpretação
+                        st.markdown("### 🎯 Interpretação dos Resultados")
+                        col_asp1, col_asp2, col_asp3 = st.columns(3)
+                        
+                        with col_asp1:
+                            a0_medio = asp_df['A₀ (m/s²)'].mean()
+                            st.markdown(f"""
+                            <div class="metric-card">
+                                <div class="metric-value">{a0_medio:.2f}</div>
+                                <div class="metric-label">Aceleração Média (m/s²)</div>
+                                <div style="font-size:0.7rem; margin-top:8px;">⚡ Capacidade de aceleração inicial</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        
+                        with col_asp2:
+                            v0_medio = asp_df['V₀ (m/s)'].mean()
+                            st.markdown(f"""
+                            <div class="metric-card">
+                                <div class="metric-value">{v0_medio:.2f}</div>
+                                <div class="metric-label">Velocidade Teórica (m/s)</div>
+                                <div style="font-size:0.7rem; margin-top:8px;">🏃 Capacidade de alta velocidade</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        
+                        with col_asp3:
+                            p_max_medio = asp_df['Pₘₐₓ (W/kg)'].mean()
+                            st.markdown(f"""
+                            <div class="metric-card">
+                                <div class="metric-value">{p_max_medio:.2f}</div>
+                                <div class="metric-label">Potência Máx (W/kg)</div>
+                                <div style="font-size:0.7rem; margin-top:8px;">💪 Explosividade muscular</div>
+                            </div>
+                            """, unsafe_allow_html=True)
             
             # TAB 4: ANÁLISE DE PERFORMANCE CARDÍACA
             with tab4:
@@ -1374,7 +1345,6 @@ if uploaded_files:
                 zona_stats['% do Tempo'] = (zona_stats['Contagem'] / len(df_fc_plot) * 100).round(1)
                 zona_stats['Tempo (min)'] = (zona_stats['Contagem'] * df_fc_plot['Seconds'].diff().median() / 60).round(1)
                 
-                # Gráfico de barras empilhadas
                 fig_zona_bar = px.bar(zona_stats, x='Zona_FC', y='% do Tempo', 
                                       title="Distribuição do Tempo por Zona de Intensidade",
                                       text=zona_stats['% do Tempo'].apply(lambda x: f'{x}%'),
@@ -1383,7 +1353,6 @@ if uploaded_files:
                 fig_zona_bar.update_layout(showlegend=False, height=400)
                 st.plotly_chart(fig_zona_bar, use_container_width=True)
                 
-                # Gráfico de pizza
                 col_pie1, col_pie2 = st.columns(2)
                 with col_pie1:
                     fig_pie = px.pie(zona_stats, values='Contagem', names='Zona_FC', title="Distribuição por Zona de Intensidade",
@@ -1401,7 +1370,7 @@ if uploaded_files:
                     </div>
                     """, unsafe_allow_html=True)
             
-                       # TAB 5: COMPARAÇÃO ESPORTIVA (RADAR MELHORADO) - CORRIGIDO
+            # TAB 5: COMPARAÇÃO ESPORTIVA
             with tab5:
                 st.subheader("📊 Comparação Esportiva entre Períodos")
                 
@@ -1435,7 +1404,6 @@ if uploaded_files:
                     
                     df_comp = pd.DataFrame(comparacao_data)
                     
-                    # Gráfico de barras para cada variável
                     for var in var_selecionadas:
                         fig_bar = px.bar(df_comp, x='Período', y=var, title=f"<b>{var}</b>", 
                                          text_auto='.1f', color='Período',
@@ -1443,22 +1411,16 @@ if uploaded_files:
                         fig_bar.update_layout(height=400, showlegend=False)
                         st.plotly_chart(fig_bar, use_container_width=True)
                     
-                    # RADAR CHART MELHORADO
                     if len(df_comp) >= 2:
                         st.markdown("### 🎯 Perfil de Desempenho (Radar)")
-                        st.markdown("Comparação normalizada do perfil de desempenho entre períodos (0-100%)")
                         
-                        # Normalizar dados para radar (0-100%)
                         df_radar = df_comp.copy()
                         for var in var_selecionadas:
                             max_val = df_radar[var].max()
                             if max_val > 0:
                                 df_radar[var + " (%)"] = (df_radar[var] / max_val * 100).round(1)
                         
-                        # Criar figura radar
                         fig_radar = go.Figure()
-                        
-                        # Cores mais vibrantes
                         radar_cores = ['#00d2ff', '#ff6b6b', '#4ecdc4', '#ffe66d', '#9b59b6', '#e74c3c']
                         
                         for idx, (_, row) in enumerate(df_radar.iterrows()):
@@ -1508,8 +1470,6 @@ if uploaded_files:
                         )
                         st.plotly_chart(fig_radar, use_container_width=True)
                         
-                        # Tabela de variação percentual
-                        st.markdown("### 📊 Análise de Variação Percentual")
                         variacao_data = []
                         for i, row in df_comp.iterrows():
                             if i == 0:
@@ -1527,7 +1487,6 @@ if uploaded_files:
                         df_variacao = pd.DataFrame(variacao_data)
                         st.dataframe(df_variacao, use_container_width=True)
                         
-                        # Exportar dados
                         csv_comp = df_comp.to_csv(index=False)
                         st.download_button(
                             "📥 Exportar comparação (CSV)",
@@ -1535,3 +1494,15 @@ if uploaded_files:
                             "comparacao_periodos.csv",
                             use_container_width=True
                         )
+        
+        else:
+            st.info("👈 Configure os filtros na barra lateral e clique em **PROCESSAR ANÁLISE** para visualizar os resultados.")
+
+else:
+    st.markdown("""
+    <div style="text-align: center; padding: 50px;">
+        <h2>⚽ ScoutLab - Plataforma de Análise de Performance</h2>
+        <p style="font-size: 1.2rem; color: #aaa;">Carregue os arquivos CSV na barra lateral para iniciar a análise</p>
+        <p style="margin-top: 30px;">📊 Análise de posicionamento | ⚡ Perfil de aceleração | ❤️ Monitoramento cardíaco | 🎯 Zonas de intensidade</p>
+    </div>
+    """, unsafe_allow_html=True)
