@@ -431,8 +431,14 @@ else:
 st.sidebar.markdown("---")
 st.sidebar.subheader("⏱️ Divisão Temporal do Jogo")
 
+# Inicializar períodos
 if 'periodos' not in st.session_state:
     st.session_state.periodos = [{"nome": "1º Tempo", "inicio": 0, "fim": 45}]
+
+# Função callback para atualizar a prova real
+def atualizar_prova_real():
+    """Callback para atualizar a exibição da prova real"""
+    pass
 
 if st.sidebar.button("➕ Adicionar período", use_container_width=True):
     st.session_state.periodos.append({"nome": f"Período {len(st.session_state.periodos) + 1}", "inicio": 0, "fim": 45})
@@ -443,6 +449,15 @@ def get_horario_formatado(minutos, start_dt):
         segundos = minutos * 60
         return seconds_to_time_str(segundos, start_dt)
     return f"{int(minutos)}:00"
+
+# Função para obter o horário de referência (se já houver arquivo carregado)
+def get_reference_datetime():
+    if 'reference_datetime_temp' in st.session_state:
+        return st.session_state.reference_datetime_temp
+    return None
+
+# Exibir períodos com prova real (mesmo antes do processamento)
+st.sidebar.markdown("### Períodos configurados:")
 
 periodos_para_remover = []
 for i, periodo in enumerate(st.session_state.periodos):
@@ -463,18 +478,20 @@ for i, periodo in enumerate(st.session_state.periodos):
         
         st.session_state.periodos[i] = {"nome": novo_nome, "inicio": novo_inicio, "fim": novo_fim}
         
-        # PROVA REAL: Horário e Duração
-        if 'reference_datetime' in st.session_state and st.session_state.reference_datetime:
-            inicio_horario = get_horario_formatado(novo_inicio, st.session_state.reference_datetime)
-            fim_horario = get_horario_formatado(novo_fim, st.session_state.reference_datetime)
+        # PROVA REAL - Exibe horário e duração ANTES do processamento
+        reference_dt = get_reference_datetime()
+        if reference_dt:
+            inicio_horario = get_horario_formatado(novo_inicio, reference_dt)
+            fim_horario = get_horario_formatado(novo_fim, reference_dt)
             duracao_seg = (novo_fim - novo_inicio) * 60
             duracao_str = format_duration(duracao_seg)
             st.caption(f"🕐 {inicio_horario} → {fim_horario}  |  ⏱️ Duração: {duracao_str}")
+        else:
+            st.caption("⏳ Aguardando upload do arquivo para exibir horários reais")
 
 for i in sorted(periodos_para_remover, reverse=True):
     st.session_state.periodos.pop(i)
-    if len(st.session_state.periodos) > 0:
-        st.rerun()
+    st.rerun()
 
 # ==================== BOTÃO DE PROCESSAMENTO ====================
 
@@ -516,7 +533,7 @@ if uploaded_files and processar:
             selected_start_datetimes = [all_start_datetimes[i] for i in selected_indices]
             
             reference_datetime = selected_start_datetimes[0] if selected_start_datetimes[0] is not None else None
-            st.session_state.reference_datetime = reference_datetime
+            st.session_state.reference_datetime_temp = reference_datetime
             
             df_calibracao = selected_data[0]
             
@@ -1062,7 +1079,6 @@ if uploaded_files and processar:
                         fig_bar.update_layout(height=400, showlegend=False)
                         st.plotly_chart(fig_bar, use_container_width=True)
                     
-                    # Radar chart
                     if len(df_comp) >= 2:
                         st.markdown("### 🎯 Perfil de Desempenho (Radar)")
                         
@@ -1104,14 +1120,14 @@ else:
     ### 🚀 Como usar:
     1. **Faça upload** de arquivos CSV na barra lateral
     2. **Selecione o estádio** ou use detecção automática
-    3. **Configure os períodos** de análise (horários e duração)
+    3. **Configure os períodos** de análise (horários e duração serão exibidos automaticamente)
     4. **Escolha os atletas** e períodos
     5. **Clique em PROCESSAR ANÁLISE** para iniciar
     
     ### ✨ Funcionalidades:
     - 🏟️ **Campo retangular** com dimensões oficiais (105m x 68m)
     - 📐 **Divisões iguais em metros** - zonas com tamanhos exatos
-    - ⏱️ **Períodos personalizados** com horários e duração (prova real)
+    - ⏱️ **Períodos personalizados** com horários e duração (prova real antes do processamento)
     - ⚡ **Perfil Aceleração-Velocidade (ASP)** com eixos invertidos
     - ❤️ **Análise de Performance Cardíaca** com zonas de intensidade
     - 📊 **Comparação Esportiva** com radar, correlação e variação percentual
