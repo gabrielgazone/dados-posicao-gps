@@ -28,8 +28,14 @@ st.markdown("---")
 
 # ==================== CONSTANTES DO CAMPO ====================
 # Dimensões oficiais do campo (em metros)
-CAMPO_COMPRIMENTO = 105  # metros (comprimento)
-CAMPO_LARGURA = 68       # metros (largura)
+CAMPO_COMPRIMENTO = 105  # metros (comprimento - eixo X)
+CAMPO_LARGURA = 68       # metros (largura - eixo Y)
+
+# Limites do campo em metros
+X_MIN = -CAMPO_COMPRIMENTO / 2  # -52.5
+X_MAX = CAMPO_COMPRIMENTO / 2   # 52.5
+Y_MIN = -CAMPO_LARGURA / 2      # -34
+Y_MAX = CAMPO_LARGURA / 2       # 34
 
 # ==================== FUNÇÕES DE CONVERSÃO DE COORDENADAS ====================
 
@@ -44,7 +50,7 @@ def converter_gps_para_campo(lat, lon, bounds):
     norm_x = (lon - lon_min) / (lon_max - lon_min)
     norm_y = (lat - lat_min) / (lat_max - lat_min)
     
-    # Converter para coordenadas do campo (-52.5 a 52.5 no X, -34 a 34 no Y)
+    # Converter para coordenadas do campo (X: -52.5 a 52.5, Y: -34 a 34)
     campo_x = (norm_x * CAMPO_COMPRIMENTO) - (CAMPO_COMPRIMENTO / 2)
     campo_y = (norm_y * CAMPO_LARGURA) - (CAMPO_LARGURA / 2)
     
@@ -52,25 +58,17 @@ def converter_gps_para_campo(lat, lon, bounds):
 
 def desenhar_campo_futebol():
     """
-    Desenha todas as linhas do campo de futebol (retangular, proporção correta)
+    Desenha todas as linhas do campo de futebol com dimensões oficiais
     """
     shapes = []
-    
-    # Dimensões do campo
-    comprimento = CAMPO_COMPRIMENTO
-    largura = CAMPO_LARGURA
-    x_min = -comprimento / 2
-    x_max = comprimento / 2
-    y_min = -largura / 2
-    y_max = largura / 2
     
     # 1. Contorno do campo
     shapes.append(go.layout.Shape(
         type="rect",
-        x0=x_min, x1=x_max,
-        y0=y_min, y1=y_max,
+        x0=X_MIN, x1=X_MAX,
+        y0=Y_MIN, y1=Y_MAX,
         line=dict(color="white", width=2),
-        fillcolor="rgba(34, 139, 34, 0.3)",
+        fillcolor="rgba(34, 139, 34, 0.2)",
         layer="below"
     ))
     
@@ -78,7 +76,7 @@ def desenhar_campo_futebol():
     shapes.append(go.layout.Shape(
         type="line",
         x0=0, x1=0,
-        y0=y_min, y1=y_max,
+        y0=Y_MIN, y1=Y_MAX,
         line=dict(color="white", width=2),
         layer="below"
     ))
@@ -105,12 +103,12 @@ def desenhar_campo_futebol():
     
     # 5. Grandes áreas (16.5m da linha de fundo)
     grande_area_prof = 16.5
-    grande_area_larg = 40.3  # 16.5 + 16.5 + 7.32? Na verdade 40.3m de largura
+    grande_area_larg = 40.32  # 16.5 + 16.5 + 7.32
     
     # Grande área direita
     shapes.append(go.layout.Shape(
         type="rect",
-        x0=x_max - grande_area_prof, x1=x_max,
+        x0=X_MAX - grande_area_prof, x1=X_MAX,
         y0=-grande_area_larg/2, y1=grande_area_larg/2,
         line=dict(color="white", width=2),
         fillcolor="rgba(255,255,255,0)",
@@ -120,7 +118,7 @@ def desenhar_campo_futebol():
     # Grande área esquerda
     shapes.append(go.layout.Shape(
         type="rect",
-        x0=x_min, x1=x_min + grande_area_prof,
+        x0=X_MIN, x1=X_MIN + grande_area_prof,
         y0=-grande_area_larg/2, y1=grande_area_larg/2,
         line=dict(color="white", width=2),
         fillcolor="rgba(255,255,255,0)",
@@ -129,12 +127,12 @@ def desenhar_campo_futebol():
     
     # 6. Pequenas áreas (5.5m da linha de fundo)
     pequena_area_prof = 5.5
-    pequena_area_larg = 18.32  # 5.5 + 5.5 + 7.32 = 18.32m
+    pequena_area_larg = 18.32  # 5.5 + 5.5 + 7.32
     
     # Pequena área direita
     shapes.append(go.layout.Shape(
         type="rect",
-        x0=x_max - pequena_area_prof, x1=x_max,
+        x0=X_MAX - pequena_area_prof, x1=X_MAX,
         y0=-pequena_area_larg/2, y1=pequena_area_larg/2,
         line=dict(color="white", width=2),
         fillcolor="rgba(255,255,255,0)",
@@ -144,7 +142,7 @@ def desenhar_campo_futebol():
     # Pequena área esquerda
     shapes.append(go.layout.Shape(
         type="rect",
-        x0=x_min, x1=x_min + pequena_area_prof,
+        x0=X_MIN, x1=X_MIN + pequena_area_prof,
         y0=-pequena_area_larg/2, y1=pequena_area_larg/2,
         line=dict(color="white", width=2),
         fillcolor="rgba(255,255,255,0)",
@@ -156,7 +154,7 @@ def desenhar_campo_futebol():
     # Pênalti direita
     shapes.append(go.layout.Shape(
         type="circle",
-        x0=x_max - penalty_dist - 0.3, x1=x_max - penalty_dist + 0.3,
+        x0=X_MAX - penalty_dist - 0.3, x1=X_MAX - penalty_dist + 0.3,
         y0=-0.3, y1=0.3,
         line=dict(color="white", width=1),
         fillcolor="white",
@@ -165,27 +163,10 @@ def desenhar_campo_futebol():
     # Pênalti esquerda
     shapes.append(go.layout.Shape(
         type="circle",
-        x0=x_min + penalty_dist - 0.3, x1=x_min + penalty_dist + 0.3,
+        x0=X_MIN + penalty_dist - 0.3, x1=X_MIN + penalty_dist + 0.3,
         y0=-0.3, y1=0.3,
         line=dict(color="white", width=1),
         fillcolor="white",
-        layer="below"
-    ))
-    
-    # 8. Arcos da grande área (opcional)
-    arc_radius = 9.15
-    # Arco direito
-    shapes.append(go.layout.Shape(
-        type="path",
-        path=f"M {x_max - 11} 0 A {arc_radius} {arc_radius} 0 0 1 {x_max - 11 + arc_radius * 0.5} {arc_radius * 0.5}",
-        line=dict(color="white", width=1),
-        layer="below"
-    ))
-    # Arco esquerdo
-    shapes.append(go.layout.Shape(
-        type="path",
-        path=f"M {x_min + 11} 0 A {arc_radius} {arc_radius} 0 0 0 {x_min + 11 - arc_radius * 0.5} {arc_radius * 0.5}",
-        line=dict(color="white", width=1),
         layer="below"
     ))
     
@@ -736,10 +717,10 @@ if uploaded_files:
             )
             st.plotly_chart(fig_map, use_container_width=True)
         
-        # TAB 2: ANÁLISE TÁTICA (coordenadas do campo)
+        # TAB 2: ANÁLISE TÁTICA COM DIVISÕES IGUAIS
         with tab2:
             st.subheader("Análise Tática - Posicionamento no Campo")
-            st.markdown("O campo é representado em metros com as dimensões oficiais (105m x 68m)")
+            st.markdown(f"Campo com dimensões oficiais: **{CAMPO_COMPRIMENTO}m x {CAMPO_LARGURA}m**")
             
             if len(selected_atletas) > 1:
                 atleta_tat = st.selectbox("Atleta", selected_atletas, key="tat_select")
@@ -763,32 +744,81 @@ if uploaded_files:
                 df_tat['campo_x'] = campo_x
                 df_tat['campo_y'] = campo_y
                 st.success(f"✅ Usando limites do {nome_estadio} para conversão")
+                st.info(f"   Latitude: {bounds_estadio[0]:.6f} → {bounds_estadio[1]:.6f}")
+                st.info(f"   Longitude: {bounds_estadio[2]:.6f} → {bounds_estadio[3]:.6f}")
             else:
                 st.warning("⚠️ Limites do estádio não definidos. Use a detecção automática ou cadastre um estádio.")
                 st.stop()
             
-            # Configuração da divisão em zonas
+            # Configuração da divisão em zonas (EM METROS - DIVISÕES IGUAIS)
+            st.markdown("### 🧩 Configuração da Divisão do Campo")
+            st.markdown("As divisões são feitas em **metros**, garantindo que cada zona tenha o mesmo tamanho.")
+            
             col_lin, col_col = st.columns(2)
             with col_lin:
-                num_linhas = st.number_input("Número de linhas (divisão horizontal)", min_value=1, max_value=10, value=5,
-                                            help="Divide o campo longitudinalmente (ex: 5 = quintos defensivo, médio, ofensivo)")
-            with col_col:
-                num_colunas = st.number_input("Número de colunas (divisão vertical)", min_value=1, max_value=10, value=3,
-                                            help="Divide o campo transversalmente (ex: 3 = corredores esquerdo, central, direito)")
+                num_linhas = st.number_input(
+                    "Número de linhas (divisão horizontal)", 
+                    min_value=1, 
+                    max_value=10, 
+                    value=3,
+                    help="Divide o campo no sentido do comprimento (de um gol ao outro)"
+                )
+                # Calcular o tamanho de cada linha em metros
+                tamanho_linha = CAMPO_COMPRIMENTO / num_linhas
+                st.info(f"📏 Cada linha terá **{tamanho_linha:.1f}m** de comprimento")
             
-            # Criar bins para as zonas baseado nas dimensões reais do campo
+            with col_col:
+                num_colunas = st.number_input(
+                    "Número de colunas (divisão vertical)", 
+                    min_value=1, 
+                    max_value=10, 
+                    value=3,
+                    help="Divide o campo no sentido da largura (de uma lateral à outra)"
+                )
+                # Calcular o tamanho de cada coluna em metros
+                tamanho_coluna = CAMPO_LARGURA / num_colunas
+                st.info(f"📏 Cada coluna terá **{tamanho_coluna:.1f}m** de largura")
+            
+            # Criar bins para as zonas baseado nas dimensões reais do campo (EM METROS)
+            # Linhas: divisão no eixo X (comprimento) - do gol esquerdo ao gol direito
             x_min = -CAMPO_COMPRIMENTO / 2
             x_max = CAMPO_COMPRIMENTO / 2
+            linhas_bins = np.linspace(x_min, x_max, num_linhas + 1)
+            
+            # Colunas: divisão no eixo Y (largura) - da lateral esquerda à direita
             y_min = -CAMPO_LARGURA / 2
             y_max = CAMPO_LARGURA / 2
+            colunas_bins = np.linspace(y_min, y_max, num_colunas + 1)
             
-            linhas_bins = np.linspace(y_min, y_max, num_linhas + 1)  # Y é latitude (vertical)
-            colunas_bins = np.linspace(x_min, x_max, num_colunas + 1)  # X é longitude (horizontal)
-            
-            # Atribuir zona para cada ponto
-            df_tat['Zona_Linha'] = pd.cut(df_tat['campo_y'], bins=linhas_bins, labels=[f'L{i+1}' for i in range(num_linhas)], include_lowest=True)
-            df_tat['Zona_Coluna'] = pd.cut(df_tat['campo_x'], bins=colunas_bins, labels=[f'C{i+1}' for i in range(num_colunas)], include_lowest=True)
+            # Atribuir zona para cada ponto (usando campo_x e campo_y)
+            df_tat['Zona_Linha'] = pd.cut(df_tat['campo_x'], bins=linhas_bins, labels=[f'L{i+1}' for i in range(num_linhas)], include_lowest=True)
+            df_tat['Zona_Coluna'] = pd.cut(df_tat['campo_y'], bins=colunas_bins, labels=[f'C{i+1}' for i in range(num_colunas)], include_lowest=True)
             df_tat['Zona'] = df_tat['Zona_Linha'].astype(str) + '-' + df_tat['Zona_Coluna'].astype(str)
+            
+            # Exibir a divisão em metros
+            st.markdown("### 📐 Divisão do Campo em Zonas")
+            st.markdown(f"**Linhas (comprimento):** {num_linhas} zonas de {tamanho_linha:.1f}m cada")
+            st.markdown(f"**Colunas (largura):** {num_colunas} zonas de {tamanho_coluna:.1f}m cada")
+            
+            # Criar DataFrame com os limites de cada zona
+            zonas_info = []
+            for i in range(num_linhas):
+                for j in range(num_colunas):
+                    zona_nome = f"L{i+1}-C{j+1}"
+                    x_ini = linhas_bins[i]
+                    x_fim = linhas_bins[i+1]
+                    y_ini = colunas_bins[j]
+                    y_fim = colunas_bins[j+1]
+                    zonas_info.append({
+                        'Zona': zona_nome,
+                        'X_início (m)': f"{x_ini:.1f}",
+                        'X_fim (m)': f"{x_fim:.1f}",
+                        'Y_início (m)': f"{y_ini:.1f}",
+                        'Y_fim (m)': f"{y_fim:.1f}",
+                        'Área (m²)': f"{(x_fim - x_ini) * (y_fim - y_ini):.1f}"
+                    })
+            
+            st.dataframe(pd.DataFrame(zonas_info), use_container_width=True)
             
             # Métricas por zona
             st.markdown("### 📊 Demanda Física por Zona")
@@ -804,6 +834,9 @@ if uploaded_files:
                 sample_rate = df_tat['Seconds'].diff().median()
                 zona_metrics['Tempo(s)'] = zona_metrics['Contagem'] * sample_rate
                 zona_metrics['Tempo(min)'] = zona_metrics['Tempo(s)'] / 60
+            else:
+                zona_metrics['Tempo(s)'] = 0
+                zona_metrics['Tempo(min)'] = 0
             
             if 'Odometer' in df_tat.columns:
                 df_tat_sorted = df_tat.sort_values('Seconds')
@@ -817,17 +850,26 @@ if uploaded_files:
             else:
                 zona_metrics['Distância(m)'] = 0
             
-            zona_metrics['Intensidade'] = (zona_metrics['Vel_Média'] * zona_metrics['Contagem']) / zona_metrics['Contagem'].sum() * 100
+            # Calcular intensidade relativa
+            total_vel = (zona_metrics['Vel_Média'] * zona_metrics['Contagem']).sum()
+            if total_vel > 0:
+                zona_metrics['Intensidade'] = (zona_metrics['Vel_Média'] * zona_metrics['Contagem']) / total_vel * 100
+            else:
+                zona_metrics['Intensidade'] = 0
+            
+            # Reordenar colunas para melhor visualização
+            zona_metrics = zona_metrics[['Contagem', 'Tempo(s)', 'Tempo(min)', 'Distância(m)', 
+                                          'Vel_Média', 'Vel_Máx', 'FC_Média', 'FC_Máx', 'Intensidade']]
             
             st.dataframe(zona_metrics.style.format({
                 'Contagem': '{:.0f}',
+                'Tempo(s)': '{:.1f}',
+                'Tempo(min)': '{:.1f}',
+                'Distância(m)': '{:.0f}',
                 'Vel_Média': '{:.1f}',
                 'Vel_Máx': '{:.1f}',
                 'FC_Média': '{:.0f}',
                 'FC_Máx': '{:.0f}',
-                'Tempo(s)': '{:.1f}',
-                'Tempo(min)': '{:.1f}',
-                'Distância(m)': '{:.0f}',
                 'Intensidade': '{:.1f}%'
             }), use_container_width=True)
             
@@ -847,23 +889,39 @@ if uploaded_files:
             for shape in shapes:
                 fig_tat.add_shape(shape)
             
-            # Adicionar linhas divisórias das zonas
+            # Adicionar linhas divisórias das zonas (em METROS)
             for linha in linhas_bins[1:-1]:
                 fig_tat.add_shape(
                     type="line",
-                    x0=x_min, x1=x_max,
-                    y0=linha, y1=linha,
-                    line=dict(color="rgba(255,255,255,0.3)", width=1, dash="dash"),
+                    x0=linha, x1=linha,
+                    y0=Y_MIN, y1=Y_MAX,
+                    line=dict(color="rgba(255,255,255,0.5)", width=2, dash="dash"),
                     layer="above"
+                )
+                # Adicionar texto com a distância
+                fig_tat.add_annotation(
+                    x=linha, y=Y_MAX + 1.5,
+                    text=f"{linha:.0f}m",
+                    showarrow=False,
+                    font=dict(color="white", size=10),
+                    bgcolor="rgba(0,0,0,0.5)"
                 )
             
             for coluna in colunas_bins[1:-1]:
                 fig_tat.add_shape(
                     type="line",
-                    x0=coluna, x1=coluna,
-                    y0=y_min, y1=y_max,
-                    line=dict(color="rgba(255,255,255,0.3)", width=1, dash="dash"),
+                    x0=X_MIN, x1=X_MAX,
+                    y0=coluna, y1=coluna,
+                    line=dict(color="rgba(255,255,255,0.5)", width=2, dash="dash"),
                     layer="above"
+                )
+                # Adicionar texto com a distância
+                fig_tat.add_annotation(
+                    x=X_MIN - 2, y=coluna,
+                    text=f"{coluna:.0f}m",
+                    showarrow=False,
+                    font=dict(color="white", size=10),
+                    bgcolor="rgba(0,0,0,0.5)"
                 )
             
             # Plotar os pontos
@@ -875,23 +933,24 @@ if uploaded_files:
                         mode='markers',
                         name=f'Zona {zona}',
                         marker=dict(size=5, color=cores[i % len(cores)], opacity=0.7),
-                        text=[f"Zona {zona}<br>Horário: {seconds_to_time_str(t, start_dt_tat)}<br>Vel: {v:.1f} km/h<br>FC: {fc:.0f} bpm"
-                              for t, v, fc in zip(group['Seconds'], group['Velocity'], group['HeartRate'])],
+                        text=[f"Zona: {zona}<br>Horário: {seconds_to_time_str(t, start_dt_tat)}<br>Vel: {v:.1f} km/h<br>FC: {fc:.0f} bpm<br>Pos: ({x:.1f}m, {y:.1f}m)"
+                              for t, v, fc, x, y in zip(group['Seconds'], group['Velocity'], group['HeartRate'], group['campo_x'], group['campo_y'])],
                         hoverinfo='text'
                     ))
             
             elif viz_type == "Mapa de calor de tempo":
-                heatmap = np.zeros((num_linhas, num_colunas))
+                # Criar matriz de calor com as dimensões corretas
+                heatmap_data = np.zeros((num_linhas, num_colunas))
                 for i in range(num_linhas):
                     for j in range(num_colunas):
                         zona = f'L{i+1}-C{j+1}'
                         if zona in zona_metrics.index:
-                            heatmap[i, j] = zona_metrics.loc[zona, 'Contagem']
+                            heatmap_data[i, j] = zona_metrics.loc[zona, 'Contagem']
                 
                 fig_tat.add_trace(go.Heatmap(
-                    x=colunas_bins,
-                    y=linhas_bins,
-                    z=heatmap,
+                    x=linhas_bins,
+                    y=colunas_bins,
+                    z=heatmap_data.T,
                     colorscale='Hot',
                     opacity=0.6,
                     colorbar=dict(title="Tempo gasto<br>(nº registros)"),
@@ -907,17 +966,18 @@ if uploaded_files:
                 ))
             
             else:
-                heatmap = np.zeros((num_linhas, num_colunas))
+                # Mapa de calor de velocidade
+                heatmap_data = np.zeros((num_linhas, num_colunas))
                 for i in range(num_linhas):
                     for j in range(num_colunas):
                         zona = f'L{i+1}-C{j+1}'
                         if zona in zona_metrics.index:
-                            heatmap[i, j] = zona_metrics.loc[zona, 'Vel_Média']
+                            heatmap_data[i, j] = zona_metrics.loc[zona, 'Vel_Média']
                 
                 fig_tat.add_trace(go.Heatmap(
-                    x=colunas_bins,
-                    y=linhas_bins,
-                    z=heatmap,
+                    x=linhas_bins,
+                    y=colunas_bins,
+                    z=heatmap_data.T,
                     colorscale='Viridis',
                     opacity=0.6,
                     colorbar=dict(title="Velocidade média<br>(km/h)"),
@@ -935,20 +995,32 @@ if uploaded_files:
             # Configurar layout
             fig_tat.update_layout(
                 title=f"Análise Tática - {atleta_tat_nome}",
-                xaxis_title="Posição no campo (metros) - Comprimento",
-                yaxis_title="Posição no campo (metros) - Largura",
+                xaxis_title="Posição no campo (metros) - Comprimento (gol esquerdo → gol direito)",
+                yaxis_title="Posição no campo (metros) - Largura (lateral esquerda → lateral direita)",
                 height=700,
                 hovermode='closest',
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                xaxis=dict(scaleanchor="y", scaleratio=1, range=[-55, 55]),
-                yaxis=dict(range=[-38, 38]),
+                xaxis=dict(
+                    scaleanchor="y", 
+                    scaleratio=1, 
+                    range=[X_MIN - 2, X_MAX + 2],
+                    tickmode='linear',
+                    tick0=-50,
+                    dtick=10
+                ),
+                yaxis=dict(
+                    range=[Y_MIN - 2, Y_MAX + 2],
+                    tickmode='linear',
+                    tick0=-30,
+                    dtick=10
+                ),
                 plot_bgcolor='rgba(34, 139, 34, 0.2)',
                 paper_bgcolor='rgba(0,0,0,0)'
             )
             
             st.plotly_chart(fig_tat, use_container_width=True)
             
-            # Top zonas
+            # Top zonas por intensidade
             st.markdown("### 📈 Comparação de Intensidade entre Zonas")
             
             top_zonas = zona_metrics.nlargest(8, 'Intensidade').reset_index()
@@ -995,10 +1067,9 @@ else:
     
     ### ✨ Funcionalidades:
     - 🏟️ **Campo retangular** com dimensões oficiais (105m x 68m)
-    - 📐 **Todas as linhas do campo**: meio-campo, círculo central, grandes áreas, pequenas áreas, marcas de pênalti
+    - 📐 **Divisões em metros** - zonas com tamanhos iguais
+    - 📊 **Métricas precisas** baseadas nas zonas reais
     - 🗺️ **Mapa interativo** com trajetória do atleta
-    - 📊 **Conversão precisa** de coordenadas GPS para campo
-    - 📐 **Análise Tática** com divisão do campo em zonas (linhas e colunas)
     
     ---
     **👈 Faça upload para começar!**
