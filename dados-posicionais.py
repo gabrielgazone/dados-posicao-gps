@@ -26,45 +26,176 @@ st.set_page_config(
 st.title("🏃 Análise de Percurso do Atleta durante o Jogo")
 st.markdown("---")
 
-# ==================== FUNÇÃO DE GEOCODIFICAÇÃO (USANDO NOMINATIM - GRATUITO) ====================
+# ==================== CONSTANTES DO CAMPO ====================
+# Dimensões oficiais do campo (em metros)
+CAMPO_COMPRIMENTO = 105  # metros (comprimento)
+CAMPO_LARGURA = 68       # metros (largura)
 
-def geocodificar_endereco(endereco):
+# ==================== FUNÇÕES DE CONVERSÃO DE COORDENADAS ====================
+
+def converter_gps_para_campo(lat, lon, bounds):
     """
-    Converte um endereço em coordenadas usando Nominatim (OpenStreetMap)
-    Gratuito, sem necessidade de API key
+    Converte coordenadas GPS para coordenadas do campo (x, y) em metros
+    bounds = (lat_min, lat_max, lon_min, lon_max)
     """
-    try:
-        url = "https://nominatim.openstreetmap.org/search"
-        params = {
-            'q': endereco,
-            'format': 'json',
-            'limit': 1,
-            'addressdetails': 1
-        }
-        headers = {
-            'User-Agent': 'AnalisePercursoAtleta/1.0'
-        }
-        
-        response = requests.get(url, params=params, headers=headers)
-        
-        if response.status_code == 200:
-            dados = response.json()
-            if dados:
-                lat = float(dados[0]['lat'])
-                lon = float(dados[0]['lon'])
-                display_name = dados[0].get('display_name', endereco)
-                return lat, lon, display_name
-        return None, None, None
-    except Exception as e:
-        st.error(f"Erro na geocodificação: {e}")
-        return None, None, None
+    lat_min, lat_max, lon_min, lon_max = bounds
+    
+    # Normalizar para 0-1
+    norm_x = (lon - lon_min) / (lon_max - lon_min)
+    norm_y = (lat - lat_min) / (lat_max - lat_min)
+    
+    # Converter para coordenadas do campo (-52.5 a 52.5 no X, -34 a 34 no Y)
+    campo_x = (norm_x * CAMPO_COMPRIMENTO) - (CAMPO_COMPRIMENTO / 2)
+    campo_y = (norm_y * CAMPO_LARGURA) - (CAMPO_LARGURA / 2)
+    
+    return campo_x, campo_y
+
+def desenhar_campo_futebol():
+    """
+    Desenha todas as linhas do campo de futebol (retangular, proporção correta)
+    """
+    shapes = []
+    
+    # Dimensões do campo
+    comprimento = CAMPO_COMPRIMENTO
+    largura = CAMPO_LARGURA
+    x_min = -comprimento / 2
+    x_max = comprimento / 2
+    y_min = -largura / 2
+    y_max = largura / 2
+    
+    # 1. Contorno do campo
+    shapes.append(go.layout.Shape(
+        type="rect",
+        x0=x_min, x1=x_max,
+        y0=y_min, y1=y_max,
+        line=dict(color="white", width=2),
+        fillcolor="rgba(34, 139, 34, 0.3)",
+        layer="below"
+    ))
+    
+    # 2. Linha do meio de campo
+    shapes.append(go.layout.Shape(
+        type="line",
+        x0=0, x1=0,
+        y0=y_min, y1=y_max,
+        line=dict(color="white", width=2),
+        layer="below"
+    ))
+    
+    # 3. Círculo central (raio 9.15m)
+    shapes.append(go.layout.Shape(
+        type="circle",
+        x0=-9.15, x1=9.15,
+        y0=-9.15, y1=9.15,
+        line=dict(color="white", width=2),
+        fillcolor="rgba(255,255,255,0)",
+        layer="below"
+    ))
+    
+    # 4. Ponto central
+    shapes.append(go.layout.Shape(
+        type="circle",
+        x0=-0.3, x1=0.3,
+        y0=-0.3, y1=0.3,
+        line=dict(color="white", width=1),
+        fillcolor="white",
+        layer="below"
+    ))
+    
+    # 5. Grandes áreas (16.5m da linha de fundo)
+    grande_area_prof = 16.5
+    grande_area_larg = 40.3  # 16.5 + 16.5 + 7.32? Na verdade 40.3m de largura
+    
+    # Grande área direita
+    shapes.append(go.layout.Shape(
+        type="rect",
+        x0=x_max - grande_area_prof, x1=x_max,
+        y0=-grande_area_larg/2, y1=grande_area_larg/2,
+        line=dict(color="white", width=2),
+        fillcolor="rgba(255,255,255,0)",
+        layer="below"
+    ))
+    
+    # Grande área esquerda
+    shapes.append(go.layout.Shape(
+        type="rect",
+        x0=x_min, x1=x_min + grande_area_prof,
+        y0=-grande_area_larg/2, y1=grande_area_larg/2,
+        line=dict(color="white", width=2),
+        fillcolor="rgba(255,255,255,0)",
+        layer="below"
+    ))
+    
+    # 6. Pequenas áreas (5.5m da linha de fundo)
+    pequena_area_prof = 5.5
+    pequena_area_larg = 18.32  # 5.5 + 5.5 + 7.32 = 18.32m
+    
+    # Pequena área direita
+    shapes.append(go.layout.Shape(
+        type="rect",
+        x0=x_max - pequena_area_prof, x1=x_max,
+        y0=-pequena_area_larg/2, y1=pequena_area_larg/2,
+        line=dict(color="white", width=2),
+        fillcolor="rgba(255,255,255,0)",
+        layer="below"
+    ))
+    
+    # Pequena área esquerda
+    shapes.append(go.layout.Shape(
+        type="rect",
+        x0=x_min, x1=x_min + pequena_area_prof,
+        y0=-pequena_area_larg/2, y1=pequena_area_larg/2,
+        line=dict(color="white", width=2),
+        fillcolor="rgba(255,255,255,0)",
+        layer="below"
+    ))
+    
+    # 7. Marcas de pênalti (11m da linha de fundo)
+    penalty_dist = 11
+    # Pênalti direita
+    shapes.append(go.layout.Shape(
+        type="circle",
+        x0=x_max - penalty_dist - 0.3, x1=x_max - penalty_dist + 0.3,
+        y0=-0.3, y1=0.3,
+        line=dict(color="white", width=1),
+        fillcolor="white",
+        layer="below"
+    ))
+    # Pênalti esquerda
+    shapes.append(go.layout.Shape(
+        type="circle",
+        x0=x_min + penalty_dist - 0.3, x1=x_min + penalty_dist + 0.3,
+        y0=-0.3, y1=0.3,
+        line=dict(color="white", width=1),
+        fillcolor="white",
+        layer="below"
+    ))
+    
+    # 8. Arcos da grande área (opcional)
+    arc_radius = 9.15
+    # Arco direito
+    shapes.append(go.layout.Shape(
+        type="path",
+        path=f"M {x_max - 11} 0 A {arc_radius} {arc_radius} 0 0 1 {x_max - 11 + arc_radius * 0.5} {arc_radius * 0.5}",
+        line=dict(color="white", width=1),
+        layer="below"
+    ))
+    # Arco esquerdo
+    shapes.append(go.layout.Shape(
+        type="path",
+        path=f"M {x_min + 11} 0 A {arc_radius} {arc_radius} 0 0 0 {x_min + 11 - arc_radius * 0.5} {arc_radius * 0.5}",
+        line=dict(color="white", width=1),
+        layer="below"
+    ))
+    
+    return shapes
 
 # ==================== BANCO DE DADOS DE ESTÁDIOS ====================
 
 DB_PATH = Path("estadios.db")
 
 def init_database():
-    """Inicializa o banco de dados SQLite com a tabela de estádios"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
@@ -109,14 +240,12 @@ def init_database():
     conn.close()
 
 def carregar_estadios():
-    """Carrega lista de estádios do banco de dados"""
     conn = sqlite3.connect(DB_PATH)
     df = pd.read_sql_query("SELECT id, nome, cidade, pais, endereco FROM estadios ORDER BY nome", conn)
     conn.close()
     return df
 
 def obter_estadio(id_estadio):
-    """Obtém dados de um estádio específico"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
@@ -145,11 +274,9 @@ def obter_estadio(id_estadio):
     return None
 
 def adicionar_estadio(nome, cidade, pais, endereco, centro_lat, centro_lon, pontos):
-    """Adiciona novo estádio ao banco de dados"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    # Calcular limites a partir dos pontos
     if pontos:
         lats = [p['lat'] for p in pontos]
         lons = [p['lng'] for p in pontos]
@@ -177,6 +304,25 @@ def adicionar_estadio(nome, cidade, pais, endereco, centro_lat, centro_lon, pont
     conn.commit()
     conn.close()
 
+def geocodificar_endereco(endereco):
+    try:
+        url = "https://nominatim.openstreetmap.org/search"
+        params = {'q': endereco, 'format': 'json', 'limit': 1, 'addressdetails': 1}
+        headers = {'User-Agent': 'AnalisePercursoAtleta/1.0'}
+        
+        response = requests.get(url, params=params, headers=headers)
+        
+        if response.status_code == 200:
+            dados = response.json()
+            if dados:
+                lat = float(dados[0]['lat'])
+                lon = float(dados[0]['lon'])
+                display_name = dados[0].get('display_name', endereco)
+                return lat, lon, display_name
+        return None, None, None
+    except Exception as e:
+        return None, None, None
+
 # ==================== FUNÇÕES AUXILIARES ====================
 
 def seconds_to_time_str(seconds, start_datetime):
@@ -194,11 +340,6 @@ def extract_athlete_from_line8(content):
                 match = re.search(r'"([^"]*)"', line8)
                 if match:
                     return match.group(1).strip()
-                parts = line8.split(':')
-                if len(parts) > 1:
-                    nome = parts[1].split(';')[0].strip().strip('"')
-                    if nome:
-                        return nome
         return None
     except Exception:
         return None
@@ -278,76 +419,8 @@ def load_data(uploaded_file):
         st.error(f"Erro ao carregar arquivo {uploaded_file.name}: {e}")
         return None, None, None, None
 
-# ==================== FUNÇÃO PARA CRIAR MAPA COM MARCADORES ARRASTÁVEIS ====================
-
-def criar_mapa_selecao_pontos(center_lat, center_lon, pontos_existentes=None):
-    """Cria um mapa com marcadores arrastáveis para seleção dos cantos do campo"""
-    
-    # Criar figura com Plotly
-    fig = go.Figure()
-    
-    # Adicionar o mapa base usando OpenStreetMap
-    fig.add_trace(go.Scattermapbox(
-        lat=[center_lat],
-        lon=[center_lon],
-        mode='markers',
-        marker=dict(size=10, color='blue'),
-        text="Centro do campo",
-        hoverinfo='text',
-        showlegend=True,
-        name='Centro'
-    ))
-    
-    # Adicionar pontos existentes
-    if pontos_existentes:
-        for i, ponto in enumerate(pontos_existentes):
-            fig.add_trace(go.Scattermapbox(
-                lat=[ponto['lat']],
-                lon=[ponto['lng']],
-                mode='markers+text',
-                marker=dict(size=12, color='red', symbol='circle'),
-                text=[ponto.get('nome', f'Ponto {i+1}')],
-                textposition='top center',
-                name=ponto.get('nome', f'Ponto {i+1}'),
-                hoverinfo='text',
-                hovertext=f"{ponto.get('nome', f'Ponto {i+1}')}<br>Lat: {ponto['lat']:.6f}<br>Lon: {ponto['lng']:.6f}"
-            ))
-        
-        # Se tiver 4 pontos, desenhar o retângulo
-        if len(pontos_existentes) >= 4:
-            lats = [p['lat'] for p in pontos_existentes]
-            lons = [p['lng'] for p in pontos_existentes]
-            
-            # Desenhar o retângulo do campo
-            fig.add_trace(go.Scattermapbox(
-                lat=[min(lats), min(lats), max(lats), max(lats), min(lats)],
-                lon=[min(lons), max(lons), max(lons), min(lons), min(lons)],
-                mode='lines',
-                line=dict(color='green', width=3),
-                fill='toself',
-                fillcolor='rgba(34, 139, 34, 0.2)',
-                name='Campo',
-                hoverinfo='skip'
-            ))
-    
-    # Configurar layout do mapa
-    fig.update_layout(
-        mapbox=dict(
-            style='open-street-map',
-            center=dict(lat=center_lat, lon=center_lon),
-            zoom=18
-        ),
-        height=500,
-        margin=dict(l=0, r=0, t=30, b=0),
-        title="Clique nos 4 cantos do campo para marcar",
-        hovermode='closest'
-    )
-    
-    return fig
-
 # ==================== SIDEBAR ====================
 
-# Inicializar banco de dados
 init_database()
 
 st.sidebar.header("📁 Upload de Arquivos")
@@ -362,15 +435,12 @@ uploaded_files = st.sidebar.file_uploader(
 st.sidebar.markdown("---")
 st.sidebar.subheader("🏟️ Configuração do Estádio")
 
-# Carregar estádios cadastrados
 df_estadios = carregar_estadios()
 
-# Inicializar variáveis
 estadio_selecionado = None
 bounds_estadio = None
 centro_estadio = None
 nome_estadio = "Não selecionado"
-pontos_campo = None
 
 if len(df_estadios) > 0:
     opcoes_estadio = ["Detectar automaticamente"] + df_estadios['nome'].tolist() + ["Cadastrar novo estádio"]
@@ -388,10 +458,8 @@ if len(df_estadios) > 0:
             bounds_estadio = estadio_selecionado['bounds']
             centro_estadio = estadio_selecionado['centro']
             nome_estadio = estadio_selecionado['nome']
-            pontos_campo = estadio_selecionado.get('pontos')
             st.sidebar.success(f"✅ Estádio: {nome_estadio}")
     
-    # INTERFACE DE CADASTRO COM BUSCA DE ENDEREÇO
     if selecao_estadio == "Cadastrar novo estádio":
         with st.sidebar.expander("📝 Cadastrar novo estádio", expanded=True):
             st.markdown("### Dados básicos")
@@ -404,156 +472,70 @@ if len(df_estadios) > 0:
             
             st.markdown("---")
             st.markdown("### 🔍 Localizar estádio")
-            st.markdown("Digite o nome do estádio, endereço ou cidade para localizar no mapa:")
             
-            # Campo de busca
             endereco_busca = st.text_input("Buscar local", placeholder="Ex: Arena Castelão, Fortaleza")
             
             if endereco_busca:
                 with st.spinner("Buscando localização..."):
                     lat, lon, nome_encontrado = geocodificar_endereco(endereco_busca)
-                    
                     if lat and lon:
                         st.success(f"📍 Local encontrado: {nome_encontrado}")
                         st.info(f"Coordenadas: {lat:.6f}, {lon:.6f}")
-                        
-                        # Salvar coordenadas no session state
                         if 'centro_lat_temp' not in st.session_state:
                             st.session_state.centro_lat_temp = lat
                             st.session_state.centro_lon_temp = lon
-                        else:
-                            st.session_state.centro_lat_temp = lat
-                            st.session_state.centro_lon_temp = lon
                     else:
-                        st.error("❌ Local não encontrado. Tente um termo mais específico.")
+                        st.error("❌ Local não encontrado.")
             
             st.markdown("---")
-            st.markdown("### 🗺️ Marque os 4 cantos do campo")
-            st.markdown("""
-            **Instruções:**
-            1. Use o mapa abaixo para visualizar o estádio
-            2. **Clique nos botões abaixo** para marcar cada canto
-            3. Após marcar os 4 pontos, o campo será desenhado
-            """)
+            st.markdown("### 🗺️ Limites do campo")
             
-            # Inicializar pontos temporários
-            if 'pontos_temp_cadastro' not in st.session_state:
-                st.session_state.pontos_temp_cadastro = []
-            
-            # Exibir coordenadas do centro
             if 'centro_lat_temp' in st.session_state:
-                st.info(f"📍 Centro do estádio: {st.session_state.centro_lat_temp:.6f}, {st.session_state.centro_lon_temp:.6f}")
                 center_lat = st.session_state.centro_lat_temp
                 center_lon = st.session_state.centro_lon_temp
             else:
                 center_lat = -23.5505
                 center_lon = -46.6333
-                st.info("🔍 Digite um endereço acima para localizar o estádio")
             
-            # Criar mapa interativo
-            fig_mapa = criar_mapa_selecao_pontos(center_lat, center_lon, st.session_state.pontos_temp_cadastro)
+            col_lim1, col_lim2 = st.columns(2)
+            with col_lim1:
+                lat_min = st.number_input("Latitude mínima (Sul)", value=center_lat - 0.002, format="%.8f")
+                lat_max = st.number_input("Latitude máxima (Norte)", value=center_lat + 0.002, format="%.8f")
+            with col_lim2:
+                lon_min = st.number_input("Longitude mínima (Oeste)", value=center_lon - 0.002, format="%.8f")
+                lon_max = st.number_input("Longitude máxima (Leste)", value=center_lon + 0.002, format="%.8f")
             
-            # Exibir mapa
-            mapa_placeholder = st.empty()
-            mapa_placeholder.plotly_chart(fig_mapa, use_container_width=True)
+            centro_lat = (lat_min + lat_max) / 2
+            centro_lon = (lon_min + lon_max) / 2
             
-            st.markdown("---")
-            st.markdown("### 📍 Marcação dos cantos")
-            
-            # Botões para marcar pontos
-            col_btn1, col_btn2, col_btn3, col_btn4 = st.columns(4)
-            
-            with col_btn1:
-                if st.button("📍 Canto Superior Esquerdo (NO)", use_container_width=True):
-                    # Usar coordenadas aproximadas baseadas no centro
-                    lat = center_lat + 0.001
-                    lon = center_lon - 0.001
-                    st.session_state.pontos_temp_cadastro.append({'lat': lat, 'lng': lon, 'nome': 'NO'})
-                    st.rerun()
-            
-            with col_btn2:
-                if st.button("📍 Canto Superior Direito (NE)", use_container_width=True):
-                    lat = center_lat + 0.001
-                    lon = center_lon + 0.001
-                    st.session_state.pontos_temp_cadastro.append({'lat': lat, 'lng': lon, 'nome': 'NE'})
-                    st.rerun()
-            
-            with col_btn3:
-                if st.button("📍 Canto Inferior Esquerdo (SO)", use_container_width=True):
-                    lat = center_lat - 0.001
-                    lon = center_lon - 0.001
-                    st.session_state.pontos_temp_cadastro.append({'lat': lat, 'lng': lon, 'nome': 'SO'})
-                    st.rerun()
-            
-            with col_btn4:
-                if st.button("📍 Canto Inferior Direito (SE)", use_container_width=True):
-                    lat = center_lat - 0.001
-                    lon = center_lon + 0.001
-                    st.session_state.pontos_temp_cadastro.append({'lat': lat, 'lng': lon, 'nome': 'SE'})
-                    st.rerun()
-            
-            # Exibir pontos marcados
-            if st.session_state.pontos_temp_cadastro:
-                st.markdown("**Pontos marcados:**")
-                for i, p in enumerate(st.session_state.pontos_temp_cadastro):
-                    st.write(f"{i+1}. {p.get('nome', f'Ponto')}: Lat {p['lat']:.6f}, Lon {p['lng']:.6f}")
-                
-                col_limpar, col_salvar = st.columns(2)
-                with col_limpar:
-                    if st.button("🗑️ Limpar todos", use_container_width=True):
-                        st.session_state.pontos_temp_cadastro = []
-                        st.rerun()
-                
-                with col_salvar:
-                    if len(st.session_state.pontos_temp_cadastro) >= 4:
-                        if st.button("✅ Salvar estádio", type="primary", use_container_width=True):
-                            if nome_novo:
-                                # Calcular centro
-                                lats = [p['lat'] for p in st.session_state.pontos_temp_cadastro]
-                                lons = [p['lng'] for p in st.session_state.pontos_temp_cadastro]
-                                centro_lat = sum(lats) / len(lats)
-                                centro_lon = sum(lons) / len(lons)
-                                
-                                endereco_completo = f"{nome_novo}, {cidade_nova}, {pais_novo}"
-                                
-                                adicionar_estadio(
-                                    nome_novo, cidade_nova, pais_novo, endereco_completo,
-                                    centro_lat, centro_lon, st.session_state.pontos_temp_cadastro
-                                )
-                                st.success(f"✅ Estádio {nome_novo} cadastrado!")
-                                st.session_state.pontos_temp_cadastro = []
-                                import time; time.sleep(1); st.rerun()
-                            else:
-                                st.error("❌ Nome do estádio é obrigatório!")
-                    else:
-                        st.warning(f"⚠️ Faltam {4 - len(st.session_state.pontos_temp_cadastro)} pontos. Marque todos os 4 cantos.")
-            
-            # Opção de ajuste manual
-            with st.expander("✏️ Ajuste manual de coordenadas"):
-                st.markdown("Caso precise, você pode ajustar as coordenadas manualmente:")
-                
-                if st.session_state.pontos_temp_cadastro:
-                    novos_pontos = []
-                    for i, p in enumerate(st.session_state.pontos_temp_cadastro):
-                        col_a, col_b = st.columns(2)
-                        with col_a:
-                            lat_ajuste = st.number_input(f"Latitude {p.get('nome', f'Ponto {i+1}')}", 
-                                                        value=p['lat'], format="%.8f", key=f"lat_ajuste_{i}")
-                        with col_b:
-                            lon_ajuste = st.number_input(f"Longitude {p.get('nome', f'Ponto {i+1}')}", 
-                                                        value=p['lng'], format="%.8f", key=f"lon_ajuste_{i}")
-                        novos_pontos.append({'lat': lat_ajuste, 'lng': lon_ajuste, 'nome': p.get('nome', f'Ponto {i+1}')})
+            if st.button("💾 Salvar estádio", type="primary", use_container_width=True):
+                if nome_novo:
+                    conn = sqlite3.connect(DB_PATH)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT id FROM estadios WHERE nome = ?", (nome_novo,))
+                    existe = cursor.fetchone()
+                    conn.close()
                     
-                    if st.button("Atualizar coordenadas"):
-                        st.session_state.pontos_temp_cadastro = novos_pontos
-                        st.rerun()
+                    if existe:
+                        st.error(f"❌ Estádio '{nome_novo}' já existe!")
+                    else:
+                        pontos = [
+                            {'lat': lat_max, 'lng': lon_min, 'nome': 'NO'},
+                            {'lat': lat_max, 'lng': lon_max, 'nome': 'NE'},
+                            {'lat': lat_min, 'lng': lon_min, 'nome': 'SO'},
+                            {'lat': lat_min, 'lng': lon_max, 'nome': 'SE'}
+                        ]
+                        endereco = f"{nome_novo}, {cidade_nova}, {pais_novo}"
+                        adicionar_estadio(nome_novo, cidade_nova, pais_novo, endereco, centro_lat, centro_lon, pontos)
+                        st.success(f"✅ Estádio {nome_novo} cadastrado!")
+                        import time; time.sleep(1); st.rerun()
+                else:
+                    st.error("❌ Nome do estádio é obrigatório!")
 else:
     st.sidebar.warning("Nenhum estádio cadastrado")
     selecao_estadio = "Detectar automaticamente"
 
-# ==================== PROCESSAMENTO PRINCIPAL (mantido igual) ====================
-
-# ... (resto do código de processamento de dados e análises permanece igual)
+# ==================== PROCESSAMENTO PRINCIPAL ====================
 
 if uploaded_files:
     st.sidebar.success(f"✅ {len(uploaded_files)} arquivo(s) carregado(s)")
@@ -575,20 +557,11 @@ if uploaded_files:
         progress_bar.progress((idx + 1) / len(uploaded_files))
     
     if all_data:
-        # Seleção de atletas
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("🎯 Selecionar Atleta(s)")
-        
-        atleta_options = []
-        for atleta, periodo in zip(all_atletas, all_periodos):
-            display_name = f"{atleta} - {periodo}" if periodo != "Não identificado" else atleta
-            atleta_options.append(display_name)
-        
         selected_indices = st.sidebar.multiselect(
             "Escolha os atletas",
-            options=range(len(atleta_options)),
-            format_func=lambda x: atleta_options[x],
-            default=[0] if len(atleta_options) > 0 else []
+            options=range(len(all_atletas)),
+            format_func=lambda x: f"{all_atletas[x]} - {all_periodos[x]}" if all_periodos[x] != "Não identificado" else all_atletas[x],
+            default=[0] if len(all_atletas) > 0 else []
         )
         
         selected_atletas = [all_atletas[i] for i in selected_indices]
@@ -598,7 +571,6 @@ if uploaded_files:
         
         reference_datetime = selected_start_datetimes[0] if selected_start_datetimes[0] is not None else None
         
-        # Calibração do estádio
         df_calibracao = selected_data[0]
         
         if selecao_estadio == "Detectar automaticamente" or estadio_selecionado is None:
@@ -613,7 +585,6 @@ if uploaded_files:
             nome_estadio = "Detectado automaticamente"
             st.sidebar.info(f"🔍 Estádio detectado automaticamente")
         
-        # Filtros (mantido igual)
         st.sidebar.markdown("---")
         st.sidebar.subheader("⏱️ Filtro Temporal")
         
@@ -657,9 +628,7 @@ if uploaded_files:
         st.sidebar.markdown("---")
         st.sidebar.subheader("🎨 Opções")
         show_field = st.sidebar.checkbox("Mostrar campo", value=True)
-        map_style = st.sidebar.selectbox("Estilo do mapa", ["open-street-map", "carto-positron", "carto-darkmatter"], index=0)
         
-        # Filtrar dados
         dfs_filtered = []
         for df, atleta, periodo, start_dt in zip(selected_data, selected_atletas, selected_periodos, selected_start_datetimes):
             time_filter = (df['Seconds'] >= start_time) & (df['Seconds'] <= end_time)
@@ -676,10 +645,8 @@ if uploaded_files:
             st.warning("⚠️ Nenhum dado encontrado.")
             st.stop()
         
-        # Métricas
         df_main = dfs_filtered[0]
         atleta_main = selected_atletas[0]
-        periodo_main = selected_periodos[0]
         start_dt_main = selected_start_datetimes[0]
         
         st.markdown("### 📊 Filtros Aplicados")
@@ -708,14 +675,11 @@ if uploaded_files:
             st.metric("FC Máx", f"{df_main['HeartRate'].max():.0f} bpm")
         
         # ==================== ABAS ====================
-        tab1, tab2 = st.tabs([
-            "🗺️ Mapa do Percurso",
-            "📐 Análise Tática por Zonas"
-        ])
+        tab1, tab2 = st.tabs(["🗺️ Mapa do Percurso", "📐 Análise Tática por Zonas"])
         
-        # TAB 1: MAPA (mantido igual)
+        # TAB 1: MAPA (coordenadas GPS)
         with tab1:
-            st.subheader("Percurso no Campo")
+            st.subheader("Percurso no Campo de Futebol")
             
             if len(selected_atletas) > 1:
                 atleta_mapa = st.selectbox("Atleta", selected_atletas, key="mapa_select")
@@ -766,15 +730,16 @@ if uploaded_files:
             
             zoom = 18 if bounds_estadio else 15
             fig_map.update_layout(
-                mapbox=dict(style=map_style, center=dict(lat=center_lat, lon=center_lon), zoom=zoom),
+                mapbox=dict(style="open-street-map", center=dict(lat=center_lat, lon=center_lon), zoom=zoom),
                 height=700, margin=dict(l=0, r=0, t=30, b=0),
                 title=f"Trajetória de {atleta_mapa_nome} - {nome_estadio}"
             )
             st.plotly_chart(fig_map, use_container_width=True)
         
-        # TAB 2: ANÁLISE TÁTICA (mantido igual)
+        # TAB 2: ANÁLISE TÁTICA (coordenadas do campo)
         with tab2:
-            st.subheader("Análise Tática Integrada")
+            st.subheader("Análise Tática - Posicionamento no Campo")
+            st.markdown("O campo é representado em metros com as dimensões oficiais (105m x 68m)")
             
             if len(selected_atletas) > 1:
                 atleta_tat = st.selectbox("Atleta", selected_atletas, key="tat_select")
@@ -787,30 +752,47 @@ if uploaded_files:
                 start_dt_tat = start_dt_main
                 atleta_tat_nome = atleta_main
             
+            # Converter coordenadas GPS para coordenadas do campo
+            if bounds_estadio:
+                campo_x = []
+                campo_y = []
+                for _, row in df_tat.iterrows():
+                    x, y = converter_gps_para_campo(row['Latitude'], row['Longitude'], bounds_estadio)
+                    campo_x.append(x)
+                    campo_y.append(y)
+                df_tat['campo_x'] = campo_x
+                df_tat['campo_y'] = campo_y
+                st.success(f"✅ Usando limites do {nome_estadio} para conversão")
+            else:
+                st.warning("⚠️ Limites do estádio não definidos. Use a detecção automática ou cadastre um estádio.")
+                st.stop()
+            
+            # Configuração da divisão em zonas
             col_lin, col_col = st.columns(2)
             with col_lin:
-                num_linhas = st.number_input("Número de linhas (divisão horizontal)", min_value=1, max_value=10, value=3)
+                num_linhas = st.number_input("Número de linhas (divisão horizontal)", min_value=1, max_value=10, value=5,
+                                            help="Divide o campo longitudinalmente (ex: 5 = quintos defensivo, médio, ofensivo)")
             with col_col:
-                num_colunas = st.number_input("Número de colunas (divisão vertical)", min_value=1, max_value=10, value=3)
+                num_colunas = st.number_input("Número de colunas (divisão vertical)", min_value=1, max_value=10, value=3,
+                                            help="Divide o campo transversalmente (ex: 3 = corredores esquerdo, central, direito)")
             
-            if bounds_estadio:
-                lat_min, lat_max, lon_min, lon_max = bounds_estadio
-                st.info(f"✅ Usando limites do {nome_estadio}")
-            else:
-                lat_min = df_tat['Latitude'].min()
-                lat_max = df_tat['Latitude'].max()
-                lon_min = df_tat['Longitude'].min()
-                lon_max = df_tat['Longitude'].max()
-                st.info("📊 Usando limites baseados nos dados do atleta")
+            # Criar bins para as zonas baseado nas dimensões reais do campo
+            x_min = -CAMPO_COMPRIMENTO / 2
+            x_max = CAMPO_COMPRIMENTO / 2
+            y_min = -CAMPO_LARGURA / 2
+            y_max = CAMPO_LARGURA / 2
             
-            linhas_bins = np.linspace(lat_min, lat_max, num_linhas + 1)
-            colunas_bins = np.linspace(lon_min, lon_max, num_colunas + 1)
+            linhas_bins = np.linspace(y_min, y_max, num_linhas + 1)  # Y é latitude (vertical)
+            colunas_bins = np.linspace(x_min, x_max, num_colunas + 1)  # X é longitude (horizontal)
             
-            df_tat['Zona_Linha'] = pd.cut(df_tat['Latitude'], bins=linhas_bins, labels=[f'L{i+1}' for i in range(num_linhas)], include_lowest=True)
-            df_tat['Zona_Coluna'] = pd.cut(df_tat['Longitude'], bins=colunas_bins, labels=[f'C{i+1}' for i in range(num_colunas)], include_lowest=True)
+            # Atribuir zona para cada ponto
+            df_tat['Zona_Linha'] = pd.cut(df_tat['campo_y'], bins=linhas_bins, labels=[f'L{i+1}' for i in range(num_linhas)], include_lowest=True)
+            df_tat['Zona_Coluna'] = pd.cut(df_tat['campo_x'], bins=colunas_bins, labels=[f'C{i+1}' for i in range(num_colunas)], include_lowest=True)
             df_tat['Zona'] = df_tat['Zona_Linha'].astype(str) + '-' + df_tat['Zona_Coluna'].astype(str)
             
             # Métricas por zona
+            st.markdown("### 📊 Demanda Física por Zona")
+            
             zona_metrics = df_tat.groupby('Zona', observed=True).agg({
                 'Seconds': 'count',
                 'Velocity': ['mean', 'max'],
@@ -838,12 +820,20 @@ if uploaded_files:
             zona_metrics['Intensidade'] = (zona_metrics['Vel_Média'] * zona_metrics['Contagem']) / zona_metrics['Contagem'].sum() * 100
             
             st.dataframe(zona_metrics.style.format({
-                'Contagem': '{:.0f}', 'Vel_Média': '{:.1f}', 'Vel_Máx': '{:.1f}',
-                'FC_Média': '{:.0f}', 'FC_Máx': '{:.0f}', 'Tempo(s)': '{:.1f}',
-                'Tempo(min)': '{:.1f}', 'Distância(m)': '{:.0f}', 'Intensidade': '{:.1f}%'
+                'Contagem': '{:.0f}',
+                'Vel_Média': '{:.1f}',
+                'Vel_Máx': '{:.1f}',
+                'FC_Média': '{:.0f}',
+                'FC_Máx': '{:.0f}',
+                'Tempo(s)': '{:.1f}',
+                'Tempo(min)': '{:.1f}',
+                'Distância(m)': '{:.0f}',
+                'Intensidade': '{:.1f}%'
             }), use_container_width=True)
             
-            # Visualização
+            # Visualização do campo
+            st.markdown("### 🗺️ Visualização Tática")
+            
             viz_type = st.radio(
                 "Tipo de visualização",
                 options=["Trajetória com cores por zona", "Mapa de calor de tempo", "Mapa de calor de velocidade"],
@@ -851,27 +841,45 @@ if uploaded_files:
             )
             
             fig_tat = go.Figure()
-            fig_tat.add_shape(type="rect", x0=lon_min, x1=lon_max, y0=lat_min, y1=lat_max,
-                              line=dict(color="white", width=2), fillcolor="rgba(34,139,34,0.2)")
             
+            # Desenhar o campo de futebol completo
+            shapes = desenhar_campo_futebol()
+            for shape in shapes:
+                fig_tat.add_shape(shape)
+            
+            # Adicionar linhas divisórias das zonas
             for linha in linhas_bins[1:-1]:
-                fig_tat.add_shape(type="line", x0=lon_min, x1=lon_max, y0=linha, y1=linha,
-                                  line=dict(color="white", width=1, dash="dash"))
-            for coluna in colunas_bins[1:-1]:
-                fig_tat.add_shape(type="line", x0=coluna, x1=coluna, y0=lat_min, y1=lat_max,
-                                  line=dict(color="white", width=1, dash="dash"))
+                fig_tat.add_shape(
+                    type="line",
+                    x0=x_min, x1=x_max,
+                    y0=linha, y1=linha,
+                    line=dict(color="rgba(255,255,255,0.3)", width=1, dash="dash"),
+                    layer="above"
+                )
             
+            for coluna in colunas_bins[1:-1]:
+                fig_tat.add_shape(
+                    type="line",
+                    x0=coluna, x1=coluna,
+                    y0=y_min, y1=y_max,
+                    line=dict(color="rgba(255,255,255,0.3)", width=1, dash="dash"),
+                    layer="above"
+                )
+            
+            # Plotar os pontos
             if viz_type == "Trajetória com cores por zona":
                 cores = px.colors.qualitative.Set3
                 for i, (zona, group) in enumerate(df_tat.groupby('Zona')):
                     fig_tat.add_trace(go.Scatter(
-                        x=group['Longitude'], y=group['Latitude'],
-                        mode='markers', name=f'Zona {zona}',
-                        marker=dict(size=4, color=cores[i % len(cores)], opacity=0.7),
-                        text=[f"Zona {zona}<br>Horário: {seconds_to_time_str(t, start_dt_tat)}<br>Vel: {v:.1f}<br>FC: {fc:.0f}"
+                        x=group['campo_x'], y=group['campo_y'],
+                        mode='markers',
+                        name=f'Zona {zona}',
+                        marker=dict(size=5, color=cores[i % len(cores)], opacity=0.7),
+                        text=[f"Zona {zona}<br>Horário: {seconds_to_time_str(t, start_dt_tat)}<br>Vel: {v:.1f} km/h<br>FC: {fc:.0f} bpm"
                               for t, v, fc in zip(group['Seconds'], group['Velocity'], group['HeartRate'])],
                         hoverinfo='text'
                     ))
+            
             elif viz_type == "Mapa de calor de tempo":
                 heatmap = np.zeros((num_linhas, num_colunas))
                 for i in range(num_linhas):
@@ -879,10 +887,25 @@ if uploaded_files:
                         zona = f'L{i+1}-C{j+1}'
                         if zona in zona_metrics.index:
                             heatmap[i, j] = zona_metrics.loc[zona, 'Contagem']
-                fig_tat.add_trace(go.Heatmap(x=colunas_bins, y=linhas_bins, z=heatmap.T,
-                                             colorscale='Hot', opacity=0.7, colorbar=dict(title="Tempo")))
-                fig_tat.add_trace(go.Scatter(x=df_tat['Longitude'], y=df_tat['Latitude'],
-                                             mode='markers', marker=dict(size=3, color='white', opacity=0.5), name='Trajetória'))
+                
+                fig_tat.add_trace(go.Heatmap(
+                    x=colunas_bins,
+                    y=linhas_bins,
+                    z=heatmap,
+                    colorscale='Hot',
+                    opacity=0.6,
+                    colorbar=dict(title="Tempo gasto<br>(nº registros)"),
+                    name="Mapa de calor de tempo"
+                ))
+                
+                fig_tat.add_trace(go.Scatter(
+                    x=df_tat['campo_x'], y=df_tat['campo_y'],
+                    mode='markers',
+                    marker=dict(size=3, color='white', opacity=0.5),
+                    name='Trajetória',
+                    hoverinfo='skip'
+                ))
+            
             else:
                 heatmap = np.zeros((num_linhas, num_colunas))
                 for i in range(num_linhas):
@@ -890,28 +913,68 @@ if uploaded_files:
                         zona = f'L{i+1}-C{j+1}'
                         if zona in zona_metrics.index:
                             heatmap[i, j] = zona_metrics.loc[zona, 'Vel_Média']
-                fig_tat.add_trace(go.Heatmap(x=colunas_bins, y=linhas_bins, z=heatmap.T,
-                                             colorscale='Viridis', opacity=0.7, colorbar=dict(title="Velocidade Média")))
-                fig_tat.add_trace(go.Scatter(x=df_tat['Longitude'], y=df_tat['Latitude'],
-                                             mode='markers', marker=dict(size=3, color='white', opacity=0.5), name='Trajetória'))
+                
+                fig_tat.add_trace(go.Heatmap(
+                    x=colunas_bins,
+                    y=linhas_bins,
+                    z=heatmap,
+                    colorscale='Viridis',
+                    opacity=0.6,
+                    colorbar=dict(title="Velocidade média<br>(km/h)"),
+                    name="Mapa de calor de velocidade"
+                ))
+                
+                fig_tat.add_trace(go.Scatter(
+                    x=df_tat['campo_x'], y=df_tat['campo_y'],
+                    mode='markers',
+                    marker=dict(size=3, color='white', opacity=0.5),
+                    name='Trajetória',
+                    hoverinfo='skip'
+                ))
             
-            fig_tat.update_layout(title=f"Análise Tática - {atleta_tat_nome}", 
-                                  xaxis_title="Longitude", yaxis_title="Latitude", height=700)
+            # Configurar layout
+            fig_tat.update_layout(
+                title=f"Análise Tática - {atleta_tat_nome}",
+                xaxis_title="Posição no campo (metros) - Comprimento",
+                yaxis_title="Posição no campo (metros) - Largura",
+                height=700,
+                hovermode='closest',
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                xaxis=dict(scaleanchor="y", scaleratio=1, range=[-55, 55]),
+                yaxis=dict(range=[-38, 38]),
+                plot_bgcolor='rgba(34, 139, 34, 0.2)',
+                paper_bgcolor='rgba(0,0,0,0)'
+            )
+            
             st.plotly_chart(fig_tat, use_container_width=True)
             
             # Top zonas
+            st.markdown("### 📈 Comparação de Intensidade entre Zonas")
+            
             top_zonas = zona_metrics.nlargest(8, 'Intensidade').reset_index()
+            
             if len(top_zonas) > 0:
-                fig_bar = px.bar(top_zonas, x='Zona', y='Intensidade', title="Top 8 Zonas por Intensidade",
-                                 text=top_zonas['Intensidade'].round(1))
+                fig_bar = px.bar(
+                    top_zonas, 
+                    x='Zona', 
+                    y='Intensidade', 
+                    title="Top 8 Zonas com Maior Intensidade",
+                    text=top_zonas['Intensidade'].round(1),
+                    color='Intensidade',
+                    color_continuous_scale='Viridis'
+                )
                 fig_bar.update_traces(textposition='outside')
+                fig_bar.update_layout(height=500)
                 st.plotly_chart(fig_bar, use_container_width=True)
             
             # Exportar
             csv_tatico = zona_metrics.reset_index().to_csv(index=False)
-            st.download_button("📥 Exportar análise tática", csv_tatico, f"analise_tatica_{atleta_tat_nome}.csv")
+            st.download_button(
+                "📥 Exportar análise tática (CSV)",
+                csv_tatico,
+                f"analise_tatica_{atleta_tat_nome}.csv"
+            )
         
-        # Download
         st.markdown("---")
         st.download_button("📥 Exportar dados filtrados", df_combined.to_csv(index=False), "dados_filtrados.csv")
         st.markdown(f"**Resumo:** {len(df_combined)} registros | **Atletas:** {', '.join(selected_atletas)}")
@@ -925,20 +988,17 @@ else:
     
     ### 🚀 Como usar:
     1. **Faça upload** de arquivos CSV na barra lateral
-    2. **Cadastre o estádio**:
-       - Digite o nome do estádio ou cidade no campo de busca
-       - Clique nos botões para marcar os 4 cantos do campo
-       - Ajuste as coordenadas se necessário
-    3. **Selecione os atletas** para análise
+    2. **Selecione o estádio** ou use detecção automática
+    3. **Escolha os atletas** para análise
     4. **Ajuste os filtros** de tempo e velocidade
-    5. **Explore as análises** nas abas
+    5. **Explore as 2 abas** de análise
     
     ### ✨ Funcionalidades:
-    - 🔍 **Busca de endereços** - Encontre estádios facilmente
-    - 🗺️ **Mapa interativo** - Visualize e marque os cantos do campo
-    - 📍 **Marcadores automáticos** - Botões para marcar cada canto
-    - ✏️ **Ajuste manual** - Corrija coordenadas individualmente
-    - 📐 **Análise Tática** com divisão do campo em zonas
+    - 🏟️ **Campo retangular** com dimensões oficiais (105m x 68m)
+    - 📐 **Todas as linhas do campo**: meio-campo, círculo central, grandes áreas, pequenas áreas, marcas de pênalti
+    - 🗺️ **Mapa interativo** com trajetória do atleta
+    - 📊 **Conversão precisa** de coordenadas GPS para campo
+    - 📐 **Análise Tática** com divisão do campo em zonas (linhas e colunas)
     
     ---
     **👈 Faça upload para começar!**
