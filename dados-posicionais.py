@@ -45,8 +45,7 @@ def fit_velocidade_aceleracao(velocidades, aceleracoes):
     - a0: aceleração máxima (em t=0)
     - v0: velocidade máxima teórica (onde a=0)
     """
-    # Remover valores inválidos
-    mask = (velocidades > 0) & (aceleracoes > -5) & (aceleracoes < 10)
+    mask = (velocidades > 0) & (aceleracoes > -5) & (aceleracoes < 10) & (~np.isnan(velocidades)) & (~np.isnan(aceleracoes))
     v_clean = velocidades[mask]
     a_clean = aceleracoes[mask]
     
@@ -54,64 +53,51 @@ def fit_velocidade_aceleracao(velocidades, aceleracoes):
         return None
     
     try:
-        # Modelo linear: a = a0 - (a0/v0) * v
-        # Equivalente: a = b - c * v, onde b = a0, c = a0/v0
         def modelo_linear(v, a0, v0):
             return a0 - (a0 / v0) * v
         
-        # Ajuste da curva
-        popt, _ = curve_fit(modelo_linear, v_clean, a_clean, p0=[5, 8])
+        popt, pcov = curve_fit(modelo_linear, v_clean, a_clean, p0=[5, 8])
         a0, v0 = popt
         
-        # Calcular outras métricas
-        p_max = a0 * v0 / 4  # Potência máxima teórica
-        v_max = np.max(v_clean)  # Velocidade máxima observada
+        p_max = a0 * v0 / 4
+        v_max = np.max(v_clean)
+        
+        # Calcular R²
+        residuos = a_clean - modelo_linear(v_clean, a0, v0)
+        ss_res = np.sum(residuos**2)
+        ss_tot = np.sum((a_clean - np.mean(a_clean))**2)
+        r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
         
         return {
-            'a0': a0,  # Aceleração máxima (m/s²)
-            'v0': v0,  # Velocidade máxima teórica (m/s)
-            'v_max': v_max,  # Velocidade máxima observada (m/s)
-            'p_max': p_max,  # Potência máxima (W/kg)
-            'r2': np.corrcoef(a_clean, modelo_linear(v_clean, a0, v0))[0, 1]**2,
-            'n_points': len(v_clean)
+            'a0': a0,
+            'v0': v0,
+            'v_max': v_max,
+            'p_max': p_max,
+            'r2': r2,
+            'n_points': len(v_clean),
+            'slope': -a0 / v0 if v0 > 0 else 0
         }
     except:
         return None
 
 def calcular_asp_metrics(df):
-    """
-    Calcula as métricas do Perfil Aceleração-Velocidade (ASP)
-    baseado na metodologia do artigo de referência
-    """
-    # Filtrar sprints (acelerações positivas e velocidades > 0)
     df_sprints = df[(df['Acceleration'] > 0) & (df['Velocity'] > 0)].copy()
-    
     if len(df_sprints) < 10:
         return None
     
-    # Converter velocidade para m/s (se estiver em km/h)
-    if df_sprints['Velocity'].max() < 50:  # Provavelmente está em m/s
+    if df_sprints['Velocity'].max() < 50:
         v_ms = df_sprints['Velocity'].values
     else:
         v_ms = df_sprints['Velocity'].values / 3.6
     
     a_ms2 = df_sprints['Acceleration'].values
-    
-    # Ajuste da curva
     result = fit_velocidade_aceleracao(v_ms, a_ms2)
     
     if result:
-        # Adicionar métricas complementares
         result['v_medio'] = np.mean(v_ms)
         result['a_medio'] = np.mean(a_ms2)
         result['num_sprints'] = len(df_sprints)
-        
-        # Força relativa (F = m*a, assumindo massa = 1)
-        result['f0'] = result['a0']  # Força máxima em N/kg
-        
-        # Slope do perfil (declividade)
-        result['slope'] = -result['a0'] / result['v0'] if result['v0'] > 0 else 0
-        
+        result['f0'] = result['a0']
     return result
 
 # ==================== FUNÇÕES DE CONVERSÃO ====================
@@ -268,7 +254,6 @@ def seconds_to_time_str(seconds, start_datetime):
     return target_time.strftime("%H:%M:%S")
 
 def format_duration(seconds):
-    """Formata duração em HH:MM:SS"""
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
@@ -631,11 +616,9 @@ if uploaded_files:
             st.warning("⚠️ Nenhum dado encontrado nos períodos selecionados.")
             st.stop()
         
-        # Adicionar análise combinada
         if len(dfs_por_periodo) > 1:
             dfs_por_periodo["Todos períodos combinados"] = df_combinado_total
         
-        # Métricas principais
         primeiro_periodo = list(dfs_por_periodo.keys())[0]
         df_main = dfs_por_periodo[primeiro_periodo]
         atleta_main = selected_atletas[0]
@@ -678,7 +661,7 @@ if uploaded_files:
             "📊 Comparação Esportiva"
         ])
         
-        # TAB 1: MAPA (mantido igual)
+        # TAB 1: MAPA
         with tab1:
             st.subheader("Percurso no Campo de Futebol")
             opcoes_mapa = list(dfs_por_periodo.keys())
@@ -713,7 +696,7 @@ if uploaded_files:
                                   title=f"Trajetória de {selected_atletas[0]} - {periodo_selecionado_mapa} - {nome_estadio}")
             st.plotly_chart(fig_map, use_container_width=True)
         
-        # TAB 2: ANÁLISE TÁTICA (mantido igual)
+        # TAB 2: ANÁLISE TÁTICA (COM CARDS DE MÉTRICAS DO PERÍODO)
         with tab2:
             st.subheader("Análise Tática - Posicionamento no Campo")
             st.markdown(f"Campo com dimensões oficiais: **{CAMPO_COMPRIMENTO}m x {CAMPO_LARGURA}m**")
@@ -722,6 +705,22 @@ if uploaded_files:
             periodo_selecionado_tatica = st.selectbox("Selecionar período para análise tática", options=opcoes_tatica, key="tatica_periodo_select")
             df_tat = dfs_por_periodo[periodo_selecionado_tatica]
             start_dt_tat = df_tat['start_datetime'].iloc[0] if len(df_tat) > 0 else None
+            
+            # CARDS DE MÉTRICAS DO PERÍODO SELECIONADO
+            st.markdown(f"### 📊 Métricas do Período: {periodo_selecionado_tatica}")
+            col_metric1, col_metric2, col_metric3, col_metric4, col_metric5 = st.columns(5)
+            with col_metric1:
+                dist = df_tat['Odometer'].max() - df_tat['Odometer'].min() if 'Odometer' in df_tat.columns else 0
+                st.metric("Distância", f"{dist:.0f} m")
+            with col_metric2:
+                st.metric("Velocidade Máxima", f"{df_tat['Velocity'].max():.1f} km/h")
+            with col_metric3:
+                st.metric("Velocidade Média", f"{df_tat['Velocity'].mean():.1f} km/h")
+            with col_metric4:
+                st.metric("FC Média", f"{df_tat['HeartRate'].mean():.0f} bpm")
+            with col_metric5:
+                st.metric("FC Máxima", f"{df_tat['HeartRate'].max():.0f} bpm")
+            st.markdown("---")
             
             if bounds_estadio:
                 campo_x, campo_y = [], []
@@ -861,7 +860,7 @@ if uploaded_files:
             csv_tatico = zona_metrics.reset_index().to_csv(index=False)
             st.download_button("📥 Exportar análise tática", csv_tatico, f"analise_tatica_{selected_atletas[0]}_{periodo_selecionado_tatica}.csv")
         
-        # TAB 3: PERFIL ACELERAÇÃO-VELOCIDADE (ASP) - NOVA
+        # TAB 3: PERFIL ACELERAÇÃO-VELOCIDADE (COM EIXOS INVERTIDOS)
         with tab3:
             st.subheader("⚡ Perfil Aceleração-Velocidade (Acceleration-Speed Profile)")
             st.markdown("""
@@ -870,9 +869,10 @@ if uploaded_files:
             
             O **Perfil Aceleração-Velocidade (ASP)** é um método confiável para avaliar as variáveis mecânicas 
             da cinemática de corrida em jogadores de futebol profissionais.
+            
+            **Gráfico:** Aceleração (m/s²) no eixo X | Velocidade (m/s) no eixo Y
             """)
             
-            # Referência do artigo
             with st.expander("📄 **Referência Científica**"):
                 st.markdown("""
                 **Alonso-Callejo, A., García-Unanue, J., Guitart-Trench, M., Majano, C., Gallardo, L., & Felipe, J. (2024).**  
@@ -880,20 +880,12 @@ if uploaded_files:
                 from the force-velocity profile in professional soccer players.  
                 *Journal of Strength and Conditioning Research, 38*(3), 563-570.  
                 DOI: 10.1519/JSC.0000000000004637
-                
-                **Principais achados:**
-                - O ASP, quando calculado com dados de uma semana competitiva completa, é um método confiável
-                - As variáveis mais confiáveis são relacionadas à velocidade (V₀, S₀, Vₘₐₓ)
-                - Permite analisar a relação entre aceleração e velocidade em sprints
-                - Pode ser usado para prescrição de treinamento de resistência, avaliação de desempenho e gestão de retorno ao jogo
                 """)
             
-            # Selecionar período para análise
             opcoes_asp = list(dfs_por_periodo.keys())
             periodo_selecionado_asp = st.selectbox("Selecionar período para análise ASP", options=opcoes_asp, key="asp_periodo_select")
             df_asp = dfs_por_periodo[periodo_selecionado_asp]
             
-            # Calcular ASP metrics
             asp_results = {}
             for nome, df_periodo in dfs_por_periodo.items():
                 asp_metrics = calcular_asp_metrics(df_periodo)
@@ -903,19 +895,15 @@ if uploaded_files:
             if not asp_results:
                 st.warning("⚠️ Dados insuficientes para calcular o Perfil Aceleração-Velocidade. São necessários pelo menos 10 pontos com aceleração positiva e velocidade > 0.")
             else:
-                # Gráfico principal: Curva Aceleração-Velocidade
+                # Gráfico principal: Curva Aceleração-Velocidade (EIXOS INVERTIDOS: X = Aceleração, Y = Velocidade)
                 st.markdown("### 📈 Curva Aceleração-Velocidade (ASP)")
                 
                 fig_asp = go.Figure()
                 
-                # Plotar pontos e curvas para cada período
                 for nome, metrics in asp_results.items():
                     df_periodo = dfs_por_periodo[nome]
-                    
-                    # Filtrar sprints
                     df_sprints = df_periodo[(df_periodo['Acceleration'] > 0) & (df_periodo['Velocity'] > 0)].copy()
                     
-                    # Converter velocidade para m/s
                     if df_sprints['Velocity'].max() < 50:
                         v_ms = df_sprints['Velocity'].values
                     else:
@@ -923,32 +911,32 @@ if uploaded_files:
                     
                     a_ms2 = df_sprints['Acceleration'].values
                     
-                    # Pontos observados
+                    # Pontos observados (X = Aceleração, Y = Velocidade)
                     fig_asp.add_trace(go.Scatter(
-                        x=v_ms, y=a_ms2,
+                        x=a_ms2, y=v_ms,
                         mode='markers',
                         name=f'{nome} (dados)',
                         marker=dict(size=6, opacity=0.6),
-                        text=[f"Vel: {v:.2f} m/s<br>Acel: {a:.2f} m/s²" for v, a in zip(v_ms, a_ms2)],
+                        text=[f"Acel: {a:.2f} m/s²<br>Vel: {v:.2f} m/s" for a, v in zip(a_ms2, v_ms)],
                         hoverinfo='text'
                     ))
                     
-                    # Curva ajustada
-                    v_curve = np.linspace(0, metrics['v0'], 50)
-                    a_curve = metrics['a0'] - (metrics['a0'] / metrics['v0']) * v_curve
+                    # Curva ajustada (a partir do modelo)
+                    a_curve = np.linspace(0, metrics['a0'], 50)
+                    v_curve = metrics['v0'] * (1 - a_curve / metrics['a0'])
                     
                     fig_asp.add_trace(go.Scatter(
-                        x=v_curve, y=a_curve,
+                        x=a_curve, y=v_curve,
                         mode='lines',
                         name=f'{nome} (ajuste)',
                         line=dict(width=2, dash='dash'),
-                        text=[f"Modelo: a = {metrics['a0']:.2f} - {abs(metrics['slope']):.2f}·v" for _ in v_curve],
+                        text=[f"Modelo: v = {metrics['v0']:.2f} * (1 - a/{metrics['a0']:.2f})" for _ in a_curve],
                         hoverinfo='text'
                     ))
                     
                     # Ponto de velocidade máxima
                     fig_asp.add_trace(go.Scatter(
-                        x=[metrics['v_max']], y=[0],
+                        x=[0], y=[metrics['v_max']],
                         mode='markers+text',
                         marker=dict(size=12, color='red', symbol='x'),
                         text=[f"Vₘₐₓ: {metrics['v_max']:.2f} m/s"],
@@ -959,8 +947,8 @@ if uploaded_files:
                 
                 fig_asp.update_layout(
                     title="Relação Aceleração-Velocidade (ASP)",
-                    xaxis_title="Velocidade (m/s)",
-                    yaxis_title="Aceleração (m/s²)",
+                    xaxis_title="Aceleração (m/s²)",
+                    yaxis_title="Velocidade (m/s)",
                     height=500,
                     hovermode='closest',
                     legend=dict(orientation="h", yanchor="bottom", y=1.02)
@@ -1001,20 +989,6 @@ if uploaded_files:
                               f"{asp_df['Potência Máx (W/kg)'].iloc[0]:.2f} W/kg",
                               help="Potência mecânica. Valores > 10 W/kg são considerados de elite")
                 
-                st.markdown("""
-                **Interpretação Clínica e Esportiva:**
-                - **a₀ (Aceleração Máxima)**: Capacidade de gerar força nos primeiros passos. Valores mais altos indicam melhor capacidade de aceleração.
-                - **v₀ (Velocidade Teórica)**: Capacidade de atingir altas velocidades. Correlaciona-se com desempenho em sprints longos.
-                - **R²**: Qualidade do ajuste do modelo. Valores > 0.7 indicam boa confiabilidade do perfil.
-                - **Slope**: Taxa de declínio da aceleração com a velocidade. Valores mais negativos indicam maior fadiga em sprints.
-                
-                **Aplicações Práticas (conforme Alonso-Callejo et al., 2024):**
-                - Prescrição de treinamento de resistência
-                - Avaliação de desempenho
-                - Gestão de retorno ao jogo (return-to-play)
-                - Identificação de assimetrias entre membros
-                """)
-                
                 # Gráfico comparativo entre períodos
                 if len(asp_df) > 1:
                     st.markdown("### 📊 Comparação do Perfil ASP entre Períodos")
@@ -1040,7 +1014,7 @@ if uploaded_files:
                     )
                     st.plotly_chart(fig_comp_asp, use_container_width=True)
         
-        # TAB 4: ANÁLISE DE PERFORMANCE CARDÍACA - NOVA
+        # TAB 4: ANÁLISE DE PERFORMANCE CARDÍACA
         with tab4:
             st.subheader("❤️ Análise de Performance Cardíaca")
             st.markdown("Análise integrada da frequência cardíaca, aceleração e distância percorrida.")
@@ -1050,29 +1024,24 @@ if uploaded_files:
             df_fc = dfs_por_periodo[periodo_selecionado_fc]
             start_dt_fc = df_fc['start_datetime'].iloc[0] if len(df_fc) > 0 else None
             
-            # Criar coluna de horário
             df_fc['Horario'] = df_fc['Seconds'].apply(lambda x: seconds_to_time_str(x, start_dt_fc))
             
-            # Gráfico 1: FC e Aceleração sobrepostos
             st.markdown("### 📈 Frequência Cardíaca e Aceleração")
             
             fig_fc_acc = make_subplots(specs=[[{"secondary_y": True}]])
             
-            # FC (eixo primário)
             fig_fc_acc.add_trace(
                 go.Scatter(x=df_fc['Horario'], y=df_fc['HeartRate'], mode='lines', name='FC',
                           line=dict(color='red', width=2), fill='tozeroy', fillcolor='rgba(231,76,60,0.2)'),
                 secondary_y=False
             )
             
-            # Aceleração (eixo secundário)
             fig_fc_acc.add_trace(
                 go.Scatter(x=df_fc['Horario'], y=df_fc['Acceleration'], mode='lines', name='Aceleração',
                           line=dict(color='blue', width=1.5), fill='tozeroy', fillcolor='rgba(52,152,219,0.1)'),
                 secondary_y=True
             )
             
-            # Linha de limiar anaeróbico (85% da FC máxima)
             fc_max = df_fc['HeartRate'].max()
             limiar_anaerobico = fc_max * 0.85
             fig_fc_acc.add_hline(y=limiar_anaerobico, line_dash="dash", line_color="orange",
@@ -1089,25 +1058,20 @@ if uploaded_files:
             fig_fc_acc.update_yaxes(title_text="Aceleração (m/s²)", secondary_y=True, color="blue")
             st.plotly_chart(fig_fc_acc, use_container_width=True)
             
-            # Gráfico 2: Distância acumulada e FC sobrepostos
-            st.markdown("### 📈 Distância Acumulada vs Frequência Cardíaca")
-            
             if 'Odometer' in df_fc.columns:
-                # Calcular distância acumulada normalizada
+                st.markdown("### 📈 Distância Acumulada vs Frequência Cardíaca")
+                
                 df_fc['Distancia_Acumulada'] = df_fc['Odometer'] - df_fc['Odometer'].min()
                 df_fc['Distancia_Normalizada'] = df_fc['Distancia_Acumulada'] / df_fc['Distancia_Acumulada'].max() * 100 if df_fc['Distancia_Acumulada'].max() > 0 else 0
-                df_fc['FC_Normalizada'] = df_fc['HeartRate'] / fc_max * 100 if fc_max > 0 else 0
                 
                 fig_dist_fc = make_subplots(specs=[[{"secondary_y": True}]])
                 
-                # Distância (eixo primário)
                 fig_dist_fc.add_trace(
                     go.Scatter(x=df_fc['Horario'], y=df_fc['Distancia_Acumulada'], mode='lines', name='Distância Acumulada',
                               line=dict(color='green', width=2), fill='tozeroy', fillcolor='rgba(46,204,113,0.2)'),
                     secondary_y=False
                 )
                 
-                # FC (eixo secundário)
                 fig_dist_fc.add_trace(
                     go.Scatter(x=df_fc['Horario'], y=df_fc['HeartRate'], mode='lines', name='FC',
                               line=dict(color='red', width=2)),
@@ -1124,7 +1088,6 @@ if uploaded_files:
                 fig_dist_fc.update_yaxes(title_text="FC (bpm)", secondary_y=True, color="red")
                 st.plotly_chart(fig_dist_fc, use_container_width=True)
                 
-                # Gráfico 3: Relação FC vs Distância (scatter)
                 st.markdown("### 🎯 Relação FC vs Distância Acumulada")
                 
                 fig_scatter_fc = px.scatter(
@@ -1134,14 +1097,13 @@ if uploaded_files:
                     color_continuous_scale='Viridis'
                 )
                 
-                # Adicionar linha de tendência
                 z = np.polyfit(df_fc['Distancia_Acumulada'], df_fc['HeartRate'], 1)
                 p = np.poly1d(z)
                 x_trend = np.linspace(df_fc['Distancia_Acumulada'].min(), df_fc['Distancia_Acumulada'].max(), 100)
                 fig_scatter_fc.add_trace(go.Scatter(
                     x=x_trend, y=p(x_trend),
                     mode='lines',
-                    name=f'Tendência: {z[0]:.2f} m/bpm',
+                    name=f'Tendência: {z[0]:.2f} bpm/m',
                     line=dict(color='red', dash='dash')
                 ))
                 
@@ -1151,10 +1113,8 @@ if uploaded_files:
                 **Análise da Relação FC-Distância:**
                 - **Coeficiente angular da tendência:** {z[0]:.2f} bpm/m
                 - **Interpretação:** Quanto maior o coeficiente, mais rapidamente a FC aumenta com a distância percorrida
-                - **Limiar anaeróbico atingido em:** {df_fc[df_fc['HeartRate'] >= limiar_anaerobico]['Distancia_Acumulada'].min():.0f} m (se aplicável)
                 """)
             
-            # Zonas de intensidade cardíaca
             st.markdown("### 📊 Distribuição por Zonas de Intensidade Cardíaca")
             
             fc_max = df_fc['HeartRate'].max()
@@ -1171,7 +1131,6 @@ if uploaded_files:
             zona_stats.columns = ['Contagem', 'Tempo (samples)', 'Vel Média (km/h)']
             zona_stats['% do Tempo'] = (zona_stats['Contagem'] / len(df_fc) * 100).round(1).astype(str) + '%'
             
-            # Calcular tempo real
             if len(df_fc) > 1:
                 sample_rate = df_fc['Seconds'].diff().median()
                 zona_stats['Tempo Real (min)'] = (zona_stats['Contagem'] * sample_rate / 60).round(1)
@@ -1180,7 +1139,6 @@ if uploaded_files:
             
             st.dataframe(zona_stats[['Contagem', '% do Tempo', 'Tempo Real (min)', 'Vel Média (km/h)']], use_container_width=True)
             
-            # Gráfico de pizza das zonas
             fig_pie_fc = px.pie(
                 zona_stats, values='Contagem', names=zona_stats.index,
                 title="Distribuição do Tempo por Zona de Intensidade Cardíaca",
@@ -1188,8 +1146,8 @@ if uploaded_files:
             )
             st.plotly_chart(fig_pie_fc, use_container_width=True)
         
-        # TAB 5: COMPARAÇÃO ESPORTIVA (mantido)
-        with tab4:  # Será tab5 na interface
+        # TAB 5: COMPARAÇÃO ESPORTIVA (RESTAURADA COMPLETA)
+        with tab5:
             st.subheader("Comparação Esportiva entre Períodos")
             st.markdown("Análise detalhada das diferenças de desempenho entre os períodos selecionados.")
             
@@ -1247,7 +1205,6 @@ if uploaded_files:
                         styled_df[col] = styled_df[col].round(1)
                 st.dataframe(styled_df, use_container_width=True)
                 
-                # Gráfico de barras
                 st.markdown("### 📈 Comparação Visual")
                 for var in var_selecionadas:
                     st.markdown(f"#### {var}")
@@ -1277,6 +1234,59 @@ if uploaded_files:
                         showlegend=False
                     )
                     st.plotly_chart(fig_comp, use_container_width=True)
+                
+                # Matriz de correlação
+                if len(var_selecionadas) >= 2 and len(df_comparacao) >= 2:
+                    st.markdown("### 🔥 Matriz de Correlação entre Variáveis")
+                    
+                    corr_data = df_comparacao[var_selecionadas].copy()
+                    corr_matrix = corr_data.corr()
+                    
+                    fig_corr = go.Figure(data=go.Heatmap(
+                        z=corr_matrix.values,
+                        x=corr_matrix.columns,
+                        y=corr_matrix.columns,
+                        colorscale='RdBu',
+                        zmin=-1, zmax=1,
+                        text=corr_matrix.values.round(2),
+                        texttemplate='%{text}',
+                        textfont={"size": 12},
+                        hoverongaps=False
+                    ))
+                    
+                    fig_corr.update_layout(
+                        title="Correlação entre Variáveis de Desempenho",
+                        height=500,
+                        width=600
+                    )
+                    st.plotly_chart(fig_corr, use_container_width=True)
+                    
+                    st.markdown("""
+                    **Interpretação da Correlação:**
+                    - **Próximo de 1:** Forte correlação positiva
+                    - **Próximo de -1:** Forte correlação negativa
+                    - **Próximo de 0:** Sem correlação significativa
+                    """)
+                
+                # Análise de variação percentual
+                st.markdown("### 📊 Análise de Variação Percentual")
+                
+                variacao_data = []
+                for i, row in df_comparacao.iterrows():
+                    if i == 0:
+                        variacao_data.append({"Período": row['Período'], "Status": "Referência"})
+                    else:
+                        ref = df_comparacao.iloc[0]
+                        var_dict = {"Período": row['Período']}
+                        for var in var_selecionadas:
+                            if var in row and var in ref:
+                                diff = row[var] - ref[var]
+                                pct = (diff / ref[var] * 100) if ref[var] != 0 else 0
+                                var_dict[var] = f"{'+' if diff > 0 else ''}{pct:.1f}%"
+                        variacao_data.append(var_dict)
+                
+                df_variacao = pd.DataFrame(variacao_data)
+                st.dataframe(df_variacao, use_container_width=True)
                 
                 # Radar Chart
                 if len(df_comparacao) >= 2:
@@ -1333,9 +1343,10 @@ else:
     - 🏟️ **Campo retangular** com dimensões oficiais (105m x 68m)
     - 📐 **Divisões iguais em metros** - zonas com tamanhos exatos
     - ⏱️ **Períodos personalizados** com horários e duração
-    - ⚡ **Perfil Aceleração-Velocidade (ASP)** baseado em pesquisa científica
+    - ⚡ **Perfil Aceleração-Velocidade (ASP)** com eixos invertidos
     - ❤️ **Análise de Performance Cardíaca** com zonas de intensidade
-    - 📊 **Comparação esportiva** com radar, correlação e variação percentual
+    - 📊 **Comparação Esportiva** com radar, correlação e variação percentual
+    - 🎯 **Cards de métricas** específicas do período selecionado
     
     ---
     **👈 Faça upload para começar!**
