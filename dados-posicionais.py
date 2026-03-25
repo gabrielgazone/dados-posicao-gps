@@ -50,11 +50,9 @@ def init_database():
         )
     ''')
     
-    # Verificar se já existem dados
     cursor.execute("SELECT COUNT(*) FROM estadios")
     count = cursor.fetchone()[0]
     
-    # Inserir estádios de exemplo se não existirem
     if count == 0:
         estadios_exemplo = [
             ("Maracanã", "Rio de Janeiro", "Brasil", -22.912, -43.230, -22.915, -22.909, -43.233, -43.227, 0),
@@ -81,14 +79,12 @@ def init_database():
     conn.close()
 
 def carregar_estadios():
-    """Carrega lista de estádios do banco de dados"""
     conn = sqlite3.connect(DB_PATH)
     df = pd.read_sql_query("SELECT id, nome, cidade, pais FROM estadios ORDER BY nome", conn)
     conn.close()
     return df
 
 def obter_estadio(id_estadio):
-    """Obtém dados de um estádio específico"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
@@ -112,7 +108,6 @@ def obter_estadio(id_estadio):
     return None
 
 def adicionar_estadio(nome, cidade, pais, dados_calibracao):
-    """Adiciona novo estádio ao banco de dados"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
@@ -134,492 +129,40 @@ def adicionar_estadio(nome, cidade, pais, dados_calibracao):
     conn.commit()
     conn.close()
 
-def calibrar_estadio_from_data(df):
-    """Calibra automaticamente os limites do estádio baseado nos dados do atleta"""
-    # Usar percentis para evitar outliers
-    lat_min = df['Latitude'].quantile(0.01)
-    lat_max = df['Latitude'].quantile(0.99)
-    lon_min = df['Longitude'].quantile(0.01)
-    lon_max = df['Longitude'].quantile(0.99)
-    
-    centro_lat = (lat_min + lat_max) / 2
-    centro_lon = (lon_min + lon_max) / 2
-    
-    # Adicionar uma margem de 5% para não cortar os pontos
-    lat_padding = (lat_max - lat_min) * 0.05
-    lon_padding = (lon_max - lon_min) * 0.05
-    
-    return {
-        'centro_lat': centro_lat,
-        'centro_lon': centro_lon,
-        'lat_min': lat_min - lat_padding,
-        'lat_max': lat_max + lat_padding,
-        'lon_min': lon_min - lon_padding,
-        'lon_max': lon_max + lon_padding
-    }
-
-# ==================== FUNÇÕES PARA CADASTRO ASSISTIDO DE ESTÁDIOS ====================
-
-def sugerir_limites_estadio(df):
-    """Sugere limites do estádio baseado nos dados do atleta"""
-    # Usar percentis mais conservadores para o campo
-    lat_min = df['Latitude'].quantile(0.02)
-    lat_max = df['Latitude'].quantile(0.98)
-    lon_min = df['Longitude'].quantile(0.02)
-    lon_max = df['Longitude'].quantile(0.98)
-    
-    # Calcular centro
-    centro_lat = (lat_min + lat_max) / 2
-    centro_lon = (lon_min + lon_max) / 2
-    
-    # Calcular proporção do campo (105m x 68m)
-    # Assumindo que a distância em graus é aproximadamente linear
-    lat_range_degrees = lat_max - lat_min
-    lon_range_degrees = lon_max - lon_min
-    
-    # Ajustar para manter proporção 105:68
-    target_ratio = 105 / 68  # ~1.544
-    current_ratio = lon_range_degrees / lat_range_degrees if lat_range_degrees > 0 else target_ratio
-    
-    if current_ratio > target_ratio:
-        # Muito largo, ajustar latitude
-        new_lat_range = lon_range_degrees / target_ratio
-        lat_min = centro_lat - new_lat_range / 2
-        lat_max = centro_lat + new_lat_range / 2
-    else:
-        # Muito estreito, ajustar longitude
-        new_lon_range = lat_range_degrees * target_ratio
-        lon_min = centro_lon - new_lon_range / 2
-        lon_max = centro_lon + new_lon_range / 2
-    
-    return {
-        'centro_lat': centro_lat,
-        'centro_lon': centro_lon,
-        'lat_min': lat_min,
-        'lat_max': lat_max,
-        'lon_min': lon_min,
-        'lon_max': lon_max
-    }
-
-def calcular_dimensoes_campo(bounds):
-    """Calcula as dimensões aproximadas do campo em metros"""
-    lat_min, lat_max, lon_min, lon_max = bounds
-    
-    # Converter diferenças para metros (aproximado)
-    # 1 grau de latitude ≈ 111,000 metros
-    # 1 grau de longitude ≈ 111,000 * cos(latitude) metros
+def validar_dimensoes_campo(lat_min, lat_max, lon_min, lon_max):
+    if lat_min >= lat_max or lon_min >= lon_max:
+        return False, "Limites inválidos"
     
     lat_center = (lat_min + lat_max) / 2
-    lat_range_m = (lat_max - lat_min) * 111000
-    lon_range_m = (lon_max - lon_min) * 111000 * np.cos(np.radians(lat_center))
+    largura_m = (lat_max - lat_min) * 111000
+    comprimento_m = (lon_max - lon_min) * 111000 * np.cos(np.radians(lat_center))
     
-    return lat_range_m, lon_range_m
-
-def validar_limites_estadio(bounds):
-    """Valida se os limites são consistentes com um campo de futebol"""
-    lat_min, lat_max, lon_min, lon_max = bounds
+    if comprimento_m < 50 or comprimento_m > 150:
+        return False, f"Comprimento ({comprimento_m:.0f}m) fora do esperado"
+    if largura_m < 40 or largura_m > 100:
+        return False, f"Largura ({largura_m:.0f}m) fora do esperado"
     
-    # Verificar se os limites são lógicos
-    if lat_min >= lat_max or lon_min >= lon_max:
-        return False, "Limites inválidos: mínimo deve ser menor que máximo"
-    
-    # Calcular dimensões
-    largura_m, comprimento_m = calcular_dimensoes_campo(bounds)
-    
-    # Campo de futebol: 90-120m x 45-90m (mas vamos usar 105x68 como referência)
-    if largura_m < 50 or largura_m > 150:
-        return False, f"Largura ({largura_m:.0f}m) fora do esperado para um campo de futebol (50-150m)"
-    
-    if comprimento_m < 40 or comprimento_m > 100:
-        return False, f"Comprimento ({comprimento_m:.0f}m) fora do esperado para um campo de futebol (40-100m)"
-    
-    # Verificar proporção (comprimento/largura) - campo deve ser mais comprido que largo
     ratio = comprimento_m / largura_m
     if ratio < 1.2 or ratio > 2.0:
-        return False, f"Proporção ({ratio:.2f}) fora do esperado (1.2-2.0)"
+        return False, f"Proporção ({ratio:.2f}) fora do esperado"
     
-    return True, f"Dimensões válidas: {comprimento_m:.0f}m x {largura_m:.0f}m (proporção {ratio:.2f})"
+    return True, f"Dimensões válidas: {comprimento_m:.0f}m x {largura_m:.0f}m"
 
-def obter_coordenadas_google_maps_link():
-    """Gera link para obter coordenadas no Google Maps"""
-    return "https://www.google.com/maps"
-
-def cadastro_assistido_estadio():
-    """Interface para cadastro assistido de estádios"""
-    st.markdown("### 🎯 Cadastro Assistido de Estádio")
-    st.markdown("Escolha um método para cadastrar o estádio com precisão:")
-    
-    metodo = st.radio(
-        "Método de cadastro",
-        options=[
-            "📊 Extrair dos dados carregados (recomendado)",
-            "🗺️ Selecionar no mapa interativo",
-            "✏️ Inserir coordenadas manualmente"
-        ],
-        help="Selecione o método mais conveniente para obter as coordenadas"
-    )
-    
-    dados_calibracao = None
-    
-    if metodo == "📊 Extrair dos dados carregados (recomendado)":
-        st.info("Este método usa os dados de posicionamento do atleta para sugerir os limites do campo.")
-        
-        if 'df_main' in st.session_state:
-            df = st.session_state.df_main
-            
-            # Mostrar estatísticas dos dados
-            st.markdown("#### 📊 Análise dos dados carregados")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Pontos de GPS", len(df))
-                st.metric("Latitude média", f"{df['Latitude'].mean():.6f}")
-            with col2:
-                st.metric("Distância percorrida", f"{df['Odometer'].max() - df['Odometer'].min():.0f} m")
-                st.metric("Longitude média", f"{df['Longitude'].mean():.6f}")
-            
-            # Sugerir limites
-            limites_sugeridos = sugerir_limites_estadio(df)
-            
-            st.markdown("#### 🎯 Limites sugeridos automaticamente")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("**Latitude**")
-                lat_min = st.number_input("Mínima", value=limites_sugeridos['lat_min'], format="%.8f", key="lat_min_auto")
-                lat_max = st.number_input("Máxima", value=limites_sugeridos['lat_max'], format="%.8f", key="lat_max_auto")
-            with col2:
-                st.markdown("**Longitude**")
-                lon_min = st.number_input("Mínima", value=limites_sugeridos['lon_min'], format="%.8f", key="lon_min_auto")
-                lon_max = st.number_input("Máxima", value=limites_sugeridos['lon_max'], format="%.8f", key="lon_max_auto")
-            
-            # Validar limites
-            bounds = (lat_min, lat_max, lon_min, lon_max)
-            valido, mensagem = validar_limites_estadio(bounds)
-            
-            if valido:
-                st.success(f"✅ {mensagem}")
-            else:
-                st.warning(f"⚠️ {mensagem}")
-            
-            # Visualização prévia
-            st.markdown("#### 🗺️ Visualização dos limites")
-            
-            fig_preview = go.Figure()
-            
-            # Adicionar pontos do percurso
-            fig_preview.add_trace(go.Scatter(
-                x=df['Longitude'],
-                y=df['Latitude'],
-                mode='markers',
-                marker=dict(size=2, color='blue', opacity=0.5),
-                name='Percurso do atleta',
-                hoverinfo='skip'
-            ))
-            
-            # Adicionar retângulo do campo
-            fig_preview.add_shape(
-                type="rect",
-                x0=lon_min, x1=lon_max,
-                y0=lat_min, y1=lat_max,
-                line=dict(color="red", width=2, dash="dash"),
-                fillcolor="rgba(255,0,0,0.1)",
-                layer="above"
-            )
-            
-            # Adicionar centro
-            centro_lat = (lat_min + lat_max) / 2
-            centro_lon = (lon_min + lon_max) / 2
-            
-            fig_preview.add_trace(go.Scatter(
-                x=[centro_lon],
-                y=[centro_lat],
-                mode='markers',
-                marker=dict(size=10, color='red', symbol='x'),
-                name='Centro do campo',
-                hoverinfo='text',
-                text=f"Centro: {centro_lat:.6f}, {centro_lon:.6f}"
-            ))
-            
-            fig_preview.update_layout(
-                title="Visualização dos limites do campo",
-                xaxis_title="Longitude",
-                yaxis_title="Latitude",
-                height=500,
-                hovermode='closest'
-            )
-            
-            st.plotly_chart(fig_preview, use_container_width=True)
-            
-            if st.button("✅ Usar estes limites", type="primary"):
-                dados_calibracao = {
-                    'centro_lat': centro_lat,
-                    'centro_lon': centro_lon,
-                    'lat_min': lat_min,
-                    'lat_max': lat_max,
-                    'lon_min': lon_min,
-                    'lon_max': lon_max,
-                    'orientacao': 0
-                }
-                st.session_state.dados_calibracao_temp = dados_calibracao
-                st.success("Limites salvos! Preencha os dados do estádio abaixo.")
-        
-        else:
-            st.warning("⚠️ Nenhum dado de atleta carregado. Faça upload dos arquivos primeiro.")
-    
-    elif metodo == "🗺️ Selecionar no mapa interativo":
-        st.info("Clique nos 4 cantos do campo no mapa para definir os limites.")
-        
-        # Coordenadas iniciais (podem ser ajustadas pelo usuário)
-        if 'df_main' in st.session_state:
-            center_lat = st.session_state.df_main['Latitude'].mean()
-            center_lon = st.session_state.df_main['Longitude'].mean()
-        else:
-            center_lat = -23.5505
-            center_lon = -46.6333
-        
-        st.markdown("#### 📍 Instruções:")
-        st.markdown("""
-        1. Use o mapa abaixo para encontrar o estádio
-        2. Anote as coordenadas dos **4 cantos do campo**:
-           - Canto superior esquerdo (NO)
-           - Canto superior direito (NE)
-           - Canto inferior esquerdo (SO)
-           - Canto inferior direito (SE)
-        3. Preencha os campos abaixo com as coordenadas
-        """)
-        
-        # Link para Google Maps
-        st.markdown(f"🔗 **Dica:** Abra o [Google Maps]({obter_coordenadas_google_maps_link()}) em outra aba para obter as coordenadas com precisão")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("**Canto Superior Esquerdo (NO)**")
-            lat_no = st.number_input("Latitude", value=center_lat + 0.001, format="%.8f", key="lat_no")
-            lon_no = st.number_input("Longitude", value=center_lon - 0.001, format="%.8f", key="lon_no")
-            
-            st.markdown("**Canto Inferior Esquerdo (SO)**")
-            lat_so = st.number_input("Latitude", value=center_lat - 0.001, format="%.8f", key="lat_so")
-            lon_so = st.number_input("Longitude", value=center_lon - 0.001, format="%.8f", key="lon_so")
-        
-        with col2:
-            st.markdown("**Canto Superior Direito (NE)**")
-            lat_ne = st.number_input("Latitude", value=center_lat + 0.001, format="%.8f", key="lat_ne")
-            lon_ne = st.number_input("Longitude", value=center_lon + 0.001, format="%.8f", key="lon_ne")
-            
-            st.markdown("**Canto Inferior Direito (SE)**")
-            lat_se = st.number_input("Latitude", value=center_lat - 0.001, format="%.8f", key="lat_se")
-            lon_se = st.number_input("Longitude", value=center_lon + 0.001, format="%.8f", key="lon_se")
-        
-        # Calcular limites a partir dos cantos
-        lat_min = min(lat_no, lat_ne, lat_so, lat_se)
-        lat_max = max(lat_no, lat_ne, lat_so, lat_se)
-        lon_min = min(lon_no, lon_ne, lon_so, lon_se)
-        lon_max = max(lon_no, lon_ne, lon_so, lon_se)
-        
-        centro_lat = (lat_min + lat_max) / 2
-        centro_lon = (lon_min + lon_max) / 2
-        
-        # Visualização
-        st.markdown("#### 🗺️ Visualização dos pontos selecionados")
-        
-        fig_preview = go.Figure()
-        
-        # Adicionar os 4 pontos
-        fig_preview.add_trace(go.Scatter(
-            x=[lon_no, lon_ne, lon_se, lon_so, lon_no],
-            y=[lat_no, lat_ne, lat_se, lat_so, lat_no],
-            mode='lines+markers',
-            marker=dict(size=10, color='red'),
-            line=dict(color='red', width=2, dash='dash'),
-            name='Limites do campo',
-            text=['NO', 'NE', 'SE', 'SO', 'NO'],
-            textposition='top center'
-        ))
-        
-        # Adicionar centro
-        fig_preview.add_trace(go.Scatter(
-            x=[centro_lon],
-            y=[centro_lat],
-            mode='markers',
-            marker=dict(size=12, color='green', symbol='x'),
-            name='Centro'
-        ))
-        
-        fig_preview.update_layout(
-            title="Visualização dos limites do campo",
-            xaxis_title="Longitude",
-            yaxis_title="Latitude",
-            height=500
-        )
-        
-        st.plotly_chart(fig_preview, use_container_width=True)
-        
-        # Validar
-        bounds = (lat_min, lat_max, lon_min, lon_max)
-        valido, mensagem = validar_limites_estadio(bounds)
-        
-        if valido:
-            st.success(f"✅ {mensagem}")
-        else:
-            st.warning(f"⚠️ {mensagem}")
-        
-        if st.button("✅ Usar estes limites", type="primary"):
-            dados_calibracao = {
-                'centro_lat': centro_lat,
-                'centro_lon': centro_lon,
-                'lat_min': lat_min,
-                'lat_max': lat_max,
-                'lon_min': lon_min,
-                'lon_max': lon_max,
-                'orientacao': 0
-            }
-            st.session_state.dados_calibracao_temp = dados_calibracao
-            st.success("Limites salvos! Preencha os dados do estádio abaixo.")
-    
-    elif metodo == "✏️ Inserir coordenadas manualmente":
-        st.info("Insira as coordenadas dos limites do campo manualmente.")
-        
-        st.markdown("#### 📐 Coordenadas dos limites")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("**Limites de Latitude**")
-            lat_min = st.number_input("Latitude mínima (Sul)", value=0.0, format="%.8f", key="lat_min_manual")
-            lat_max = st.number_input("Latitude máxima (Norte)", value=0.0, format="%.8f", key="lat_max_manual")
-            
-            st.markdown("**Centro do campo**")
-            centro_lat = st.number_input("Latitude do centro", value=0.0, format="%.8f", key="centro_lat_manual")
-        
-        with col2:
-            st.markdown("**Limites de Longitude**")
-            lon_min = st.number_input("Longitude mínima (Oeste)", value=0.0, format="%.8f", key="lon_min_manual")
-            lon_max = st.number_input("Longitude máxima (Leste)", value=0.0, format="%.8f", key="lon_max_manual")
-            
-            st.markdown("**Centro do campo**")
-            centro_lon = st.number_input("Longitude do centro", value=0.0, format="%.8f", key="centro_lon_manual")
-        
-        # Validar
-        if lat_min != 0 and lat_max != 0 and lon_min != 0 and lon_max != 0:
-            bounds = (lat_min, lat_max, lon_min, lon_max)
-            valido, mensagem = validar_limites_estadio(bounds)
-            
-            if valido:
-                st.success(f"✅ {mensagem}")
-                
-                if st.button("✅ Usar estes limites", type="primary"):
-                    dados_calibracao = {
-                        'centro_lat': centro_lat if centro_lat != 0 else (lat_min + lat_max) / 2,
-                        'centro_lon': centro_lon if centro_lon != 0 else (lon_min + lon_max) / 2,
-                        'lat_min': lat_min,
-                        'lat_max': lat_max,
-                        'lon_min': lon_min,
-                        'lon_max': lon_max,
-                        'orientacao': 0
-                    }
-                    st.session_state.dados_calibracao_temp = dados_calibracao
-                    st.success("Limites salvos! Preencha os dados do estádio abaixo.")
-            else:
-                st.warning(f"⚠️ {mensagem}")
-        else:
-            st.info("Preencha todas as coordenadas para validar os limites.")
-    
-    return dados_calibracao
-
-# Modifique a função de cadastro de estádio na sidebar para usar o cadastro assistido
-def interface_cadastro_estadio():
-    """Interface para cadastro de novo estádio com assistência"""
-    st.markdown("### 📝 Cadastrar novo estádio")
-    
-    # Dados básicos
-    col1, col2 = st.columns(2)
-    with col1:
-        nome_novo = st.text_input("Nome do estádio*", placeholder="Ex: Maracanã")
-    with col2:
-        cidade_nova = st.text_input("Cidade", placeholder="Ex: Rio de Janeiro")
-    
-    pais_novo = st.text_input("País", placeholder="Ex: Brasil")
-    
-    st.markdown("---")
-    
-    # Cadastro assistido dos limites
-    st.markdown("### 🗺️ Definir limites do campo")
-    
-    # Usar cadastro assistido
-    dados_calibracao = cadastro_assistido_estadio()
-    
-    # Se já temos dados de calibração temporários
-    if 'dados_calibracao_temp' in st.session_state and dados_calibracao is None:
-        dados_calibracao = st.session_state.dados_calibracao_temp
-    
-    # Orientação (opcional)
-    if dados_calibracao:
-        st.markdown("---")
-        st.markdown("### 🔄 Configurações adicionais")
-        orientacao = st.number_input(
-            "Orientação do campo (graus)", 
-            value=0.0, 
-            step=1.0,
-            help="Rotação do campo em relação ao norte. 0 = alinhado com norte-sul"
-        )
-        dados_calibracao['orientacao'] = orientacao
-    
-    # Botão para salvar
-    if st.button("💾 Salvar estádio", type="primary", use_container_width=True):
-        if nome_novo and dados_calibracao:
-            # Verificar se o estádio já existe
-            conn = sqlite3.connect(DB_PATH)
-            cursor = conn.cursor()
-            cursor.execute("SELECT id FROM estadios WHERE nome = ?", (nome_novo,))
-            existe = cursor.fetchone()
-            conn.close()
-            
-            if existe:
-                st.error(f"❌ Estádio '{nome_novo}' já está cadastrado!")
-            else:
-                adicionar_estadio(
-                    nome_novo, 
-                    cidade_nova, 
-                    pais_novo, 
-                    dados_calibracao
-                )
-                st.success(f"✅ Estádio {nome_novo} cadastrado com sucesso!")
-                
-                # Limpar dados temporários
-                if 'dados_calibracao_temp' in st.session_state:
-                    del st.session_state.dados_calibracao_temp
-                
-                # Aguardar um pouco e recarregar
-                import time
-                time.sleep(1)
-                st.rerun()
-        elif not nome_novo:
-            st.error("❌ Nome do estádio é obrigatório!")
-        elif not dados_calibracao:
-            st.error("❌ Defina os limites do campo primeiro!")
-
-# ==================== FUNÇÕES DE ENTROPIA AMOSTRAL OTIMIZADA ====================
+# ==================== FUNÇÕES DE ENTROPIA AMOSTRAL ====================
 
 @st.cache_data(ttl=3600)
 def sample_entropy_fast(data, m=2, r=0.2):
-    """
-    Entropia Amostral otimizada (Sample Entropy)
-    Versão mais rápida para séries grandes
-    """
     data = np.asarray(data, dtype=np.float64)
     N = len(data)
     
     if N < m + 1:
         return np.nan
     
-    # Normalizar pelo desvio padrão
     std_data = np.std(data)
     if std_data == 0:
         return 0
     r = r * std_data
     
-    # Função para contar matches de forma otimizada
     def _count_matches(m):
         count = 0
         total = 0
@@ -642,9 +185,6 @@ def sample_entropy_fast(data, m=2, r=0.2):
 
 @st.cache_data(ttl=3600)
 def rolling_sample_entropy(data, window_size=50, step=10, m=2, r=0.2):
-    """
-    Entropia Amostral por janela deslizante otimizada
-    """
     N = len(data)
     entropies = []
     positions = []
@@ -661,58 +201,41 @@ def rolling_sample_entropy(data, window_size=50, step=10, m=2, r=0.2):
     
     return np.array(positions), np.array(entropies)
 
-# ==================== FUNÇÃO DE CONVERSÃO DE SEGUNDOS PARA HORÁRIO ====================
+# ==================== FUNÇÕES AUXILIARES ====================
 
 def seconds_to_time_str(seconds, start_datetime):
-    """Converte segundos desde o início para horário HH:MM:SS"""
     if start_datetime is None:
         return f"{int(seconds // 3600):02d}:{int((seconds % 3600) // 60):02d}:{int(seconds % 60):02d}"
     target_time = start_datetime + timedelta(seconds=seconds)
     return target_time.strftime("%H:%M:%S")
 
-def seconds_to_datetime(seconds, start_datetime):
-    """Converte segundos desde o início para objeto datetime"""
-    if start_datetime is None:
-        return None
-    return start_datetime + timedelta(seconds=seconds)
-
-# ==================== FUNÇÃO DE CARREGAMENTO DE DADOS CORRIGIDA ====================
-
 def extract_athlete_from_line8(content):
-    """Extrai o nome do atleta especificamente da linha 8 do arquivo"""
     try:
         lines = content.split('\n')
-        # Verifica se tem pelo menos 8 linhas
         if len(lines) >= 8:
-            line8 = lines[7]  # linha 8 (índice 7, pois começa em 0)
-            # Busca o padrão # Athlete: "NOME"
+            line8 = lines[7]
             if '# Athlete:' in line8:
-                # Procura por texto entre aspas
                 match = re.search(r'"([^"]*)"', line8)
                 if match:
                     return match.group(1).strip()
-                # Se não encontrar aspas, tenta após os dois pontos
                 parts = line8.split(':')
                 if len(parts) > 1:
                     nome = parts[1].split(';')[0].strip().strip('"')
                     if nome:
                         return nome
         return None
-    except Exception as e:
+    except Exception:
         return None
 
 @st.cache_data
 def load_data(uploaded_file):
-    """Carrega e processa os dados do arquivo CSV enviado com extração correta do nome do atleta da linha 8"""
     try:
         content = uploaded_file.getvalue().decode('utf-8')
         
-        # Extrair nome do atleta especificamente da linha 8
         atleta = extract_athlete_from_line8(content)
         if atleta is None:
             atleta = "Não identificado"
         
-        # Extrair período (pode estar em qualquer linha)
         periodo = "Não identificado"
         lines = content.split('\n')
         
@@ -728,30 +251,24 @@ def load_data(uploaded_file):
                     periodo = "Não identificado"
                 break
         
-        # Encontrar onde os dados começam (após os cabeçalhos)
         data_start = 0
         for i, line in enumerate(lines):
             if not line.startswith('#') and 'Timestamp' in line:
                 data_start = i
                 break
         
-        # Ler os dados
         df = pd.read_csv(StringIO(content), skiprows=data_start, sep=';')
         
-        # Renomear colunas
         col_names = ['Timestamp', 'Seconds', 'Velocity', 'Acceleration', 'Odometer', 
                      'Latitude', 'Longitude', 'HeartRate', 'PlayerLoad', 
                      'PositionalQuality', 'HDOP', 'Sats']
         
-        # Se o número de colunas não corresponder, tentar usar os nomes originais
         if len(df.columns) == len(col_names):
             df.columns = col_names
         else:
-            # Usar os primeiros nomes disponíveis
             for i, col in enumerate(df.columns[:len(col_names)]):
                 df.rename(columns={col: col_names[i]}, inplace=True)
         
-        # Converter colunas numéricas
         numeric_cols = ['Seconds', 'Velocity', 'Acceleration', 'Odometer', 
                         'Latitude', 'Longitude', 'HeartRate', 'PlayerLoad', 
                         'PositionalQuality', 'HDOP', 'Sats']
@@ -760,33 +277,23 @@ def load_data(uploaded_file):
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '.'), errors='coerce')
         
-        # Tratamento flexível para o Timestamp
         start_datetime = None
         if 'Timestamp' in df.columns:
             df['Timestamp'] = df['Timestamp'].astype(str).str.strip()
-            
             try:
                 df['Timestamp'] = pd.to_datetime(df['Timestamp'], format='%d/%m/%Y %H:%M:%S.%f', errors='coerce')
             except:
                 try:
                     df['Timestamp'] = pd.to_datetime(df['Timestamp'], format='%d/%m/%Y %H:%M:%S', errors='coerce')
                 except:
-                    try:
-                        df['Timestamp'] = pd.to_datetime(df['Timestamp'], dayfirst=True, errors='coerce')
-                    except:
-                        df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
+                    df['Timestamp'] = pd.to_datetime(df['Timestamp'], dayfirst=True, errors='coerce')
             
-            # Obter o timestamp inicial
             start_datetime = df['Timestamp'].min() if not df['Timestamp'].isna().all() else None
         
-        # Remover linhas com dados essenciais faltando
         df = df.dropna(subset=['Latitude', 'Longitude', 'Velocity', 'HeartRate'])
-        
-        # Adicionar coluna de arquivo origem e timestamp inicial
         df['arquivo_origem'] = uploaded_file.name
         df['start_datetime'] = start_datetime
         
-        # Criar coluna de horário formatado
         if start_datetime is not None:
             df['Horario'] = df['Seconds'].apply(lambda x: seconds_to_time_str(x, start_datetime))
         
@@ -795,35 +302,15 @@ def load_data(uploaded_file):
         st.error(f"Erro ao carregar arquivo {uploaded_file.name}: {e}")
         return None, None, None, None
 
-# ==================== FUNÇÃO PARA FORMATAR HORÁRIO ====================
-
-def format_time_range(start_seconds, end_seconds, start_datetime):
-    """Formata o intervalo de tempo em horários HH:MM:SS"""
-    if start_datetime is None:
-        return f"{int(start_seconds // 3600):02d}:{int((start_seconds % 3600) // 60):02d}:{int(start_seconds % 60):02d} - {int(end_seconds // 3600):02d}:{int((end_seconds % 3600) // 60):02d}:{int(end_seconds % 60):02d}"
-    
-    start_time = start_datetime + timedelta(seconds=start_seconds)
-    end_time = start_datetime + timedelta(seconds=end_seconds)
-    return f"{start_time.strftime('%H:%M:%S')} - {end_time.strftime('%H:%M:%S')}"
-
 # ==================== SIDEBAR ====================
 
-# Inicializar banco de dados
 init_database()
 
 st.sidebar.header("📁 Upload de Arquivos")
-st.sidebar.markdown("""
-### Instruções:
-1. Clique em "Browse files"
-2. Selecione **um ou mais** arquivos CSV
-3. Aguarde o processamento automático
-""")
-
 uploaded_files = st.sidebar.file_uploader(
     "Escolha os arquivos CSV",
     type=['csv'],
-    accept_multiple_files=True,
-    help="Arquivos exportados pelo sistema OpenField no formato CSV"
+    accept_multiple_files=True
 )
 
 # ==================== SIDEBAR - SELEÇÃO DE ESTÁDIO ====================
@@ -831,17 +318,14 @@ uploaded_files = st.sidebar.file_uploader(
 st.sidebar.markdown("---")
 st.sidebar.subheader("🏟️ Configuração do Estádio")
 
-# Carregar estádios cadastrados
 df_estadios = carregar_estadios()
 
 if len(df_estadios) > 0:
-    # Opção de seleção de estádio
     opcoes_estadio = ["Detectar automaticamente"] + df_estadios['nome'].tolist() + ["Cadastrar novo estádio"]
     selecao_estadio = st.sidebar.selectbox(
         "Selecione o estádio ou modo de detecção",
         options=opcoes_estadio,
-        index=0,
-        help="Escolha um estádio cadastrado ou deixe o app detectar automaticamente"
+        index=0
     )
     
     estadio_selecionado = None
@@ -849,69 +333,112 @@ if len(df_estadios) > 0:
         idx_estadio = df_estadios[df_estadios['nome'] == selecao_estadio].index[0]
         estadio_selecionado = obter_estadio(df_estadios.loc[idx_estadio, 'id'])
         if estadio_selecionado:
-            st.sidebar.success(f"✅ Estádio: {estadio_selecionado['nome']}")
-            st.sidebar.info(f"📍 {estadio_selecionado['cidade']}, {estadio_selecionado['pais']}")
+            st.sidebar.success(f"✅ {estadio_selecionado['nome']}")
     
-    # Interface para cadastro de novo estádio
+    # INTERFACE DE CADASTRO MELHORADA COM PONTOS DE REFERÊNCIA
     if selecao_estadio == "Cadastrar novo estádio":
-        with st.sidebar.expander("📝 Cadastrar novo estádio"):
-            st.markdown("### Preencha os dados do estádio")
-            nome_novo = st.text_input("Nome do estádio")
-            cidade_nova = st.text_input("Cidade")
-            pais_novo = st.text_input("País")
+        with st.sidebar.expander("📝 Cadastrar novo estádio", expanded=True):
+            st.markdown("### Dados básicos")
+            col1, col2 = st.columns(2)
+            with col1:
+                nome_novo = st.text_input("Nome do estádio*", placeholder="Ex: Castelão")
+            with col2:
+                cidade_nova = st.text_input("Cidade", placeholder="Ex: Fortaleza")
+            pais_novo = st.text_input("País", placeholder="Ex: Brasil")
             
-            st.markdown("#### Coordenadas de referência")
-            st.markdown("Você pode obter essas coordenadas no Google Maps")
-            lat_centro = st.number_input("Latitude do centro", value=0.0, format="%.6f")
-            lon_centro = st.number_input("Longitude do centro", value=0.0, format="%.6f")
-            lat_min = st.number_input("Latitude mínima (limite inferior)", value=0.0, format="%.6f")
-            lat_max = st.number_input("Latitude máxima (limite superior)", value=0.0, format="%.6f")
-            lon_min = st.number_input("Longitude mínima (limite esquerdo)", value=0.0, format="%.6f")
-            lon_max = st.number_input("Longitude máxima (limite direito)", value=0.0, format="%.6f")
-            orientacao = st.number_input("Orientação (rotação em graus)", value=0.0, help="Rotação do campo em relação ao norte")
+            st.markdown("---")
+            st.markdown("### 🗺️ Pontos de referência do campo")
+            st.markdown("Informe as coordenadas dos **4 cantos do campo** (gramado).")
+            st.markdown("🔗 Dica: Abra o [Google Maps](https://www.google.com/maps) e clique com botão direito nos cantos.")
             
-            if st.button("💾 Salvar estádio", use_container_width=True):
-                if nome_novo and lat_centro != 0 and lon_centro != 0:
-                    dados_calibracao = {
-                        'centro_lat': lat_centro,
-                        'centro_lon': lon_centro,
-                        'lat_min': lat_min,
-                        'lat_max': lat_max,
-                        'lon_min': lon_min,
-                        'lon_max': lon_max,
-                        'orientacao': orientacao
-                    }
-                    adicionar_estadio(nome_novo, cidade_nova, pais_novo, dados_calibracao)
-                    st.success(f"✅ Estádio {nome_novo} cadastrado com sucesso!")
-                    st.rerun()
+            # Layout dos 4 cantos
+            col_esq, col_dir = st.columns(2)
+            
+            with col_esq:
+                st.markdown("**Lateral Esquerda**")
+                with st.expander("📍 Canto Superior Esquerdo (NO)", expanded=True):
+                    lat_no = st.number_input("Latitude NO", value=-3.806500, format="%.8f", key="lat_no")
+                    lon_no = st.number_input("Longitude NO", value=-38.524000, format="%.8f", key="lon_no")
+                
+                with st.expander("📍 Canto Inferior Esquerdo (SO)", expanded=True):
+                    lat_so = st.number_input("Latitude SO", value=-3.808800, format="%.8f", key="lat_so")
+                    lon_so = st.number_input("Longitude SO", value=-38.524000, format="%.8f", key="lon_so")
+            
+            with col_dir:
+                st.markdown("**Lateral Direita**")
+                with st.expander("📍 Canto Superior Direito (NE)", expanded=True):
+                    lat_ne = st.number_input("Latitude NE", value=-3.806500, format="%.8f", key="lat_ne")
+                    lon_ne = st.number_input("Longitude NE", value=-38.521500, format="%.8f", key="lon_ne")
+                
+                with st.expander("📍 Canto Inferior Direito (SE)", expanded=True):
+                    lat_se = st.number_input("Latitude SE", value=-3.808800, format="%.8f", key="lat_se")
+                    lon_se = st.number_input("Longitude SE", value=-38.521500, format="%.8f", key="lon_se")
+            
+            # Calcular limites automaticamente
+            if lat_no != 0 and lat_so != 0 and lat_ne != 0 and lat_se != 0:
+                lat_min = min(lat_no, lat_ne, lat_so, lat_se)
+                lat_max = max(lat_no, lat_ne, lat_so, lat_se)
+                lon_min = min(lon_no, lon_ne, lon_so, lon_se)
+                lon_max = max(lon_no, lon_ne, lon_so, lon_se)
+                centro_lat = (lat_min + lat_max) / 2
+                centro_lon = (lon_min + lon_max) / 2
+                
+                # Visualização
+                fig_preview = go.Figure()
+                fig_preview.add_shape(type="rect", x0=lon_min, x1=lon_max, y0=lat_min, y1=lat_max,
+                                      line=dict(color="green", width=3), fillcolor="rgba(34,139,34,0.2)")
+                
+                pontos = [(lon_no, lat_no, "NO"), (lon_ne, lat_ne, "NE"), (lon_so, lat_so, "SO"), (lon_se, lat_se, "SE")]
+                for lon, lat, nome in pontos:
+                    fig_preview.add_trace(go.Scatter(x=[lon], y=[lat], mode='markers+text', text=[nome],
+                                                     marker=dict(size=12, color='blue'), textposition="top center"))
+                
+                fig_preview.add_trace(go.Scatter(x=[centro_lon], y=[centro_lat], mode='markers',
+                                                 marker=dict(size=15, color='red', symbol='x'), name='Centro'))
+                
+                fig_preview.update_layout(title="Visualização do campo", height=400, xaxis_title="Longitude", yaxis_title="Latitude")
+                st.plotly_chart(fig_preview, use_container_width=True)
+                
+                valido, msg = validar_dimensoes_campo(lat_min, lat_max, lon_min, lon_max)
+                if valido:
+                    st.success(f"✅ {msg}")
                 else:
-                    st.error("❌ Preencha pelo menos o nome do estádio e as coordenadas do centro")
+                    st.warning(f"⚠️ {msg}")
+                
+                st.markdown("---")
+                orientacao = st.number_input("Orientação (graus)", value=0.0, step=1.0)
+                
+                if st.button("💾 Salvar estádio", type="primary", use_container_width=True):
+                    if nome_novo:
+                        conn = sqlite3.connect(DB_PATH)
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT id FROM estadios WHERE nome = ?", (nome_novo,))
+                        existe = cursor.fetchone()
+                        conn.close()
+                        
+                        if existe:
+                            st.error(f"❌ Estádio '{nome_novo}' já existe!")
+                        else:
+                            dados = {'centro_lat': centro_lat, 'centro_lon': centro_lon,
+                                    'lat_min': lat_min, 'lat_max': lat_max,
+                                    'lon_min': lon_min, 'lon_max': lon_max, 'orientacao': orientacao}
+                            adicionar_estadio(nome_novo, cidade_nova, pais_novo, dados)
+                            st.success(f"✅ Estádio {nome_novo} cadastrado!")
+                            import time; time.sleep(1); st.rerun()
+                    else:
+                        st.error("❌ Nome do estádio é obrigatório!")
+            else:
+                st.info("👆 Preencha os 4 cantos do campo")
 else:
-    st.sidebar.warning("⚠️ Nenhum estádio cadastrado. Os dados serão usados sem referência de campo.")
+    st.sidebar.warning("Nenhum estádio cadastrado")
     selecao_estadio = "Detectar automaticamente"
     estadio_selecionado = None
-
-with st.sidebar.expander("📋 Exemplo de formato esperado"):
-    st.markdown("""
-    O arquivo deve conter as seguintes colunas:
-    - **Timestamp**: Data/hora da leitura
-    - **Seconds**: Tempo em segundos
-    - **Velocity**: Velocidade (km/h)
-    - **Acceleration**: Aceleração (m/s²)
-    - **Latitude**: Coordenada de latitude
-    - **Longitude**: Coordenada de longitude
-    - **HeartRate**: Frequência cardíaca (bpm)
-    
-    **Nome do atleta** é extraído da linha 8:
-    `# Athlete: "L.GAZAL";;;;;;;;;;;`
-    """)
 
 # ==================== PROCESSAMENTO PRINCIPAL ====================
 
 if uploaded_files:
     st.sidebar.success(f"✅ {len(uploaded_files)} arquivo(s) carregado(s)")
     
-    # Carregar todos os arquivos
     all_data = []
     all_atletas = []
     all_periodos = []
@@ -919,7 +446,6 @@ if uploaded_files:
     
     progress_bar = st.sidebar.progress(0)
     for idx, file in enumerate(uploaded_files):
-        st.sidebar.info(f"📊 Processando: {file.name}")
         df, atleta, periodo, start_datetime = load_data(file)
         if df is not None and len(df) > 0:
             all_data.append(df)
@@ -929,165 +455,97 @@ if uploaded_files:
         progress_bar.progress((idx + 1) / len(uploaded_files))
     
     if all_data:
-        # Seleção de atletas (múltiplos)
+        # Seleção de atletas
         st.sidebar.markdown("---")
         st.sidebar.subheader("🎯 Selecionar Atleta(s)")
         
-        # Criar lista de opções para seleção múltipla
         atleta_options = []
-        for atleta, periodo, arquivo in zip(all_atletas, all_periodos, [f.name for f in uploaded_files]):
+        for atleta, periodo in zip(all_atletas, all_periodos):
             display_name = f"{atleta} - {periodo}" if periodo != "Não identificado" else atleta
             atleta_options.append(display_name)
         
-        selected_atletas_indices = st.sidebar.multiselect(
-            "Escolha os atletas para análise",
+        selected_indices = st.sidebar.multiselect(
+            "Escolha os atletas",
             options=range(len(atleta_options)),
             format_func=lambda x: atleta_options[x],
             default=[0] if len(atleta_options) > 0 else []
         )
         
-        # Determinar atletas selecionados
-        selected_indices = selected_atletas_indices
         selected_atletas = [all_atletas[i] for i in selected_indices]
         selected_data = [all_data[i] for i in selected_indices]
         selected_periodos = [all_periodos[i] for i in selected_indices]
         selected_start_datetimes = [all_start_datetimes[i] for i in selected_indices]
         
-        # Usar o timestamp do primeiro atleta como referência
         reference_datetime = selected_start_datetimes[0] if selected_start_datetimes[0] is not None else None
         
-        # Calibração do estádio baseado nos dados do primeiro atleta
+        # Calibração do estádio
         df_calibracao = selected_data[0]
         
         if selecao_estadio == "Detectar automaticamente" or estadio_selecionado is None:
-            # Detecção automática baseada nos dados
-            bounds_auto = calibrar_estadio_from_data(df_calibracao)
-            bounds_estadio = (bounds_auto['lat_min'], bounds_auto['lat_max'], 
-                            bounds_auto['lon_min'], bounds_auto['lon_max'])
-            centro_estadio = (bounds_auto['centro_lat'], bounds_auto['centro_lon'])
+            lat_min = df_calibracao['Latitude'].quantile(0.01)
+            lat_max = df_calibracao['Latitude'].quantile(0.99)
+            lon_min = df_calibracao['Longitude'].quantile(0.01)
+            lon_max = df_calibracao['Longitude'].quantile(0.99)
+            centro_lat = (lat_min + lat_max) / 2
+            centro_lon = (lon_min + lon_max) / 2
+            bounds_estadio = (lat_min, lat_max, lon_min, lon_max)
+            centro_estadio = (centro_lat, centro_lon)
             nome_estadio = "Detectado automaticamente"
-            st.sidebar.info(f"🔍 Estádio detectado automaticamente com base nos dados")
         else:
-            # Usar estádio selecionado
             bounds_estadio = estadio_selecionado['bounds']
             centro_estadio = estadio_selecionado['centro']
             nome_estadio = estadio_selecionado['nome']
-            st.sidebar.success(f"🏟️ Usando referências do {nome_estadio}")
         
-        # Filtro de tempo global na sidebar (SLIDER DUPLO COM HORÁRIOS)
+        # Filtros
         st.sidebar.markdown("---")
-        st.sidebar.subheader("⏱️ Filtro Temporal Global")
+        st.sidebar.subheader("⏱️ Filtro Temporal")
         
-        # Encontrar o tempo mínimo e máximo entre todos os atletas selecionados
-        min_time_global = float('inf')
-        max_time_global = 0
+        min_time = float('inf')
+        max_time = 0
         for df in selected_data:
-            if 'Seconds' in df.columns:
-                min_time_global = min(min_time_global, df['Seconds'].min())
-                max_time_global = max(max_time_global, df['Seconds'].max())
+            min_time = min(min_time, df['Seconds'].min())
+            max_time = max(max_time, df['Seconds'].max())
         
-        if min_time_global == float('inf'):
-            min_time_global = 0
-        if max_time_global == 0:
-            max_time_global = 100
-        
-        if reference_datetime is not None:
-            # Calcular horários de início e fim do jogo
-            start_jogo = reference_datetime + timedelta(seconds=min_time_global)
-            end_jogo = reference_datetime + timedelta(seconds=max_time_global)
-            
-            # Criar slider duplo com valores em segundos, mas exibindo horários
-            # Converter horários para segundos para o slider
-            min_seconds = min_time_global
-            max_seconds = max_time_global
-            
-            # Criar labels para o slider (a cada 5 minutos aproximadamente)
-            num_ticks = min(20, int((max_seconds - min_seconds) / 300) + 1)
-            tick_vals = np.linspace(min_seconds, max_seconds, num_ticks)
-            tick_labels = [seconds_to_time_str(t, reference_datetime) for t in tick_vals]
-            
-            # Slider duplo
+        if reference_datetime:
             selected_range = st.sidebar.slider(
-                "Selecione o intervalo de tempo",
-                min_value=float(min_seconds),
-                max_value=float(max_seconds),
-                value=(float(min_seconds), float(max_seconds)),
-                step=1.0,
-                format="%d",
-                key="time_range_slider"
+                "Intervalo de tempo",
+                min_value=float(min_time),
+                max_value=float(max_time),
+                value=(float(min_time), float(max_time)),
+                step=1.0
             )
-            
-            start_time_global, end_time_global = selected_range
-            
-            # Exibir os horários selecionados
-            start_horario = seconds_to_time_str(start_time_global, reference_datetime)
-            end_horario = seconds_to_time_str(end_time_global, reference_datetime)
-            
-            st.sidebar.info(f"📅 Intervalo selecionado:")
-            st.sidebar.info(f"   Início: **{start_horario}**")
-            st.sidebar.info(f"   Fim: **{end_horario}**")
-            st.sidebar.info(f"   Duração: **{int(end_time_global - start_time_global)}** segundos")
-            
-            # Adicionar um slider visual com horários (usando markdown para mostrar os ticks)
-            st.sidebar.markdown("---")
-            st.sidebar.markdown("### 📍 Marcadores de Tempo")
-            
-            # Criar uma representação visual dos marcadores
-            col_m1, col_m2, col_m3 = st.sidebar.columns(3)
-            with col_m1:
-                st.markdown(f"**Início**\n\n{start_horario}")
-            with col_m2:
-                st.markdown(f"**Duração**\n\n{int(end_time_global - start_time_global)}s")
-            with col_m3:
-                st.markdown(f"**Fim**\n\n{end_horario}")
-            
+            start_time, end_time = selected_range
+            start_horario = seconds_to_time_str(start_time, reference_datetime)
+            end_horario = seconds_to_time_str(end_time, reference_datetime)
         else:
-            # Fallback para segundos se não houver timestamp
-            start_time_global = float(min_time_global)
-            end_time_global = float(max_time_global)
-            st.sidebar.info(f"⏱️ Intervalo: {start_time_global:.0f}s - {end_time_global:.0f}s")
-            start_horario = f"{int(start_time_global // 3600):02d}:{int((start_time_global % 3600) // 60):02d}:{int(start_time_global % 60):02d}"
-            end_horario = f"{int(end_time_global // 3600):02d}:{int((end_time_global % 3600) // 60):02d}:{int(end_time_global % 60):02d}"
+            start_time, end_time = min_time, max_time
+            start_horario = f"{int(start_time//3600):02d}:{int((start_time%3600)//60):02d}:{int(start_time%60):02d}"
+            end_horario = f"{int(end_time//3600):02d}:{int((end_time%3600)//60):02d}:{int(end_time%60):02d}"
         
-        # Filtro de velocidade
         st.sidebar.markdown("---")
-        st.sidebar.subheader("⚡ Filtro por Velocidade")
+        st.sidebar.subheader("⚡ Filtro Velocidade")
         
-        # Encontrar velocidade máxima entre todos os atletas selecionados
-        max_speed_global = 0
-        min_speed_global = 0
+        max_speed = 0
         for df in selected_data:
-            if 'Velocity' in df.columns:
-                max_speed_global = max(max_speed_global, df['Velocity'].max())
-                min_speed_global = min(min_speed_global, df['Velocity'].min())
+            max_speed = max(max_speed, df['Velocity'].max())
         
-        if max_speed_global > 0:
-            speed_range = st.sidebar.slider(
-                "Filtro por velocidade (km/h)",
-                min_value=float(min_speed_global),
-                max_value=float(max_speed_global),
-                value=(float(min_speed_global), float(max_speed_global)),
-                step=0.5
-            )
-        else:
-            speed_range = (0, 100)
-        
-        # Opções de visualização
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("🎨 Opções de Visualização")
-        show_field = st.sidebar.checkbox("🗺️ Mostrar campo de futebol", value=True)
-        map_style = st.sidebar.selectbox(
-            "Estilo do mapa base",
-            ["open-street-map", "carto-positron", "carto-darkmatter", "stamen-terrain"],
-            index=0
+        speed_range = st.sidebar.slider(
+            "Velocidade (km/h)",
+            min_value=0.0,
+            max_value=float(max_speed),
+            value=(0.0, float(max_speed)),
+            step=0.5
         )
-        show_heatmap = st.sidebar.checkbox("🌡️ Mostrar mapa de calor de velocidade", value=False)
         
-        # Processar dados de cada atleta selecionado (aplicando filtros globais)
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("🎨 Opções")
+        show_field = st.sidebar.checkbox("Mostrar campo", value=True)
+        map_style = st.sidebar.selectbox("Estilo do mapa", ["open-street-map", "carto-positron", "carto-darkmatter"], index=0)
+        
+        # Filtrar dados
         dfs_filtered = []
         for df, atleta, periodo, start_dt in zip(selected_data, selected_atletas, selected_periodos, selected_start_datetimes):
-            # Aplicar filtros de tempo e velocidade
-            time_filter = (df['Seconds'] >= start_time_global) & (df['Seconds'] <= end_time_global)
+            time_filter = (df['Seconds'] >= start_time) & (df['Seconds'] <= end_time)
             speed_filter = (df['Velocity'] >= speed_range[0]) & (df['Velocity'] <= speed_range[1])
             df_filtered = df[time_filter & speed_filter].copy()
             df_filtered['Atleta'] = atleta
@@ -1095,530 +553,237 @@ if uploaded_files:
             df_filtered['start_datetime'] = start_dt
             dfs_filtered.append(df_filtered)
         
-        # Combinar dados filtrados para análises
-        if len(dfs_filtered) > 0:
-            df_combined = pd.concat(dfs_filtered, ignore_index=True)
-        else:
-            df_combined = pd.DataFrame()
+        df_combined = pd.concat(dfs_filtered, ignore_index=True) if dfs_filtered else pd.DataFrame()
         
         if len(df_combined) == 0:
-            st.warning("⚠️ Nenhum dado encontrado com os filtros selecionados.")
+            st.warning("⚠️ Nenhum dado encontrado.")
             st.stop()
         
-        # Exibir atletas selecionados e filtros aplicados
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("🏅 Atletas em Análise")
-        for atleta, periodo in zip(selected_atletas, selected_periodos):
-            st.sidebar.write(f"**{atleta}** - {periodo}")
+        # Métricas
+        df_main = dfs_filtered[0]
+        atleta_main = selected_atletas[0]
+        start_dt_main = selected_start_datetimes[0]
         
-        # Exibir resumo dos filtros no corpo principal
         st.markdown("### 📊 Filtros Aplicados")
         col_f1, col_f2, col_f3, col_f4 = st.columns(4)
         with col_f1:
-            st.info(f"**⏱️ Intervalo de tempo:** {start_horario} → {end_horario}")
+            st.info(f"⏱️ {start_horario} → {end_horario}")
         with col_f2:
-            st.info(f"**⚡ Filtro de velocidade:** {speed_range[0]:.1f} - {speed_range[1]:.1f} km/h")
+            st.info(f"⚡ {speed_range[0]:.1f} - {speed_range[1]:.1f} km/h")
         with col_f3:
-            total_registros = sum(len(df) for df in dfs_filtered)
-            st.info(f"**📊 Total de registros:** {total_registros:,}")
+            st.info(f"📊 {len(df_combined):,} registros")
         with col_f4:
-            st.info(f"**🏟️ Estádio:** {nome_estadio}")
-        
-        # Métricas principais (para o primeiro atleta selecionado)
-        df_main = dfs_filtered[0]
-        atleta_main = selected_atletas[0]
-        periodo_main = selected_periodos[0]
-        start_dt_main = selected_start_datetimes[0]
+            st.info(f"🏟️ {nome_estadio}")
         
         st.markdown("### 📈 Métricas de Desempenho")
         col1, col2, col3, col4, col5 = st.columns(5)
-        
         with col1:
-            dist_total = df_main['Odometer'].max() if 'Odometer' in df_main.columns else 0
-            st.metric("Distância total", f"{dist_total:.0f} m")
+            dist = df_main['Odometer'].max() if 'Odometer' in df_main.columns else 0
+            st.metric("Distância", f"{dist:.0f} m")
         with col2:
-            vel_max = df_main['Velocity'].max() if 'Velocity' in df_main.columns else 0
-            st.metric("Velocidade máxima", f"{vel_max:.1f} km/h")
+            st.metric("Vel Máx", f"{df_main['Velocity'].max():.1f} km/h")
         with col3:
-            vel_media = df_main['Velocity'].mean() if 'Velocity' in df_main.columns else 0
-            st.metric("Velocidade média", f"{vel_media:.1f} km/h")
+            st.metric("Vel Média", f"{df_main['Velocity'].mean():.1f} km/h")
         with col4:
-            fc_media = df_main['HeartRate'].mean() if 'HeartRate' in df_main.columns else 0
-            st.metric("FC média", f"{fc_media:.0f} bpm")
+            st.metric("FC Média", f"{df_main['HeartRate'].mean():.0f} bpm")
         with col5:
-            fc_max = df_main['HeartRate'].max() if 'HeartRate' in df_main.columns else 0
-            st.metric("FC máxima", f"{fc_max:.0f} bpm")
+            st.metric("FC Máx", f"{df_main['HeartRate'].max():.0f} bpm")
         
-        # Criar abas
+        # ==================== ABAS COMPLETAS ====================
         tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-            "🗺️ Mapa do Percurso", 
-            "📈 Gráficos de Desempenho", 
-            "⚡ Velocidade e Aceleração",
-            "❤️ Frequência Cardíaca",
-            "🔄 Aceleração vs Velocidade", 
-            "📊 Entropia Amostral",
-            "📐 Análise Tática por Zonas"
+            "🗺️ Mapa", "📈 Desempenho", "⚡ Velocidade", "❤️ FC", "🔄 Aceleração", "📊 Entropia", "📐 Tática"
         ])
         
-        # ==================== TAB 1: MAPA COM CAMPO DE FUTEBOL ====================
+        # TAB 1: MAPA
         with tab1:
-            st.subheader("Percurso do Atleta no Campo de Futebol")
+            st.subheader("Percurso no Campo")
             
-            # Slider para selecionar o atleta para visualização no mapa
             if len(selected_atletas) > 1:
-                atleta_mapa = st.selectbox(
-                    "Selecione o atleta para visualizar no mapa",
-                    options=selected_atletas,
-                    index=0,
-                    key="mapa_atleta_select"
-                )
-                idx_mapa = selected_atletas.index(atleta_mapa)
-                df_mapa = dfs_filtered[idx_mapa].copy()
-                atleta_mapa_nome = atleta_mapa
-                periodo_mapa = selected_periodos[idx_mapa]
-                start_dt_mapa = selected_start_datetimes[idx_mapa]
+                atleta_mapa = st.selectbox("Atleta", selected_atletas, key="mapa_select")
+                idx = selected_atletas.index(atleta_mapa)
+                df_mapa = dfs_filtered[idx].copy()
+                start_dt_mapa = selected_start_datetimes[idx]
             else:
                 df_mapa = df_main.copy()
-                atleta_mapa_nome = atleta_main
-                periodo_mapa = periodo_main
                 start_dt_mapa = start_dt_main
             
-            df_mapa_filtrado = df_mapa.copy()
-            
-            st.info(f"📊 Mostrando percurso de {atleta_mapa_nome} no intervalo {start_horario} → {end_horario} | {len(df_mapa_filtrado)} pontos")
-            st.info(f"🏟️ Referência: {nome_estadio}")
-            
-            # Calcular centro do mapa baseado no estádio ou nos dados
             if estadio_selecionado:
                 center_lat, center_lon = centro_estadio
             else:
-                center_lat = df_mapa_filtrado['Latitude'].mean() if len(df_mapa_filtrado) > 0 else -23.5505
-                center_lon = df_mapa_filtrado['Longitude'].mean() if len(df_mapa_filtrado) > 0 else -46.6333
+                center_lat = df_mapa['Latitude'].mean()
+                center_lon = df_mapa['Longitude'].mean()
             
-            # Criar figura do mapa
             fig_map = go.Figure()
             
-            # Adicionar campo de futebol como shapes (se selecionado)
             if show_field and estadio_selecionado:
-                # Desenhar o retângulo do campo baseado nos bounds do estádio
                 lat_min, lat_max, lon_min, lon_max = bounds_estadio
-                
-                fig_map.add_shape(
-                    type="rect",
-                    x0=lon_min, x1=lon_max,
-                    y0=lat_min, y1=lat_max,
-                    line=dict(color="white", width=2),
-                    fillcolor="rgba(34, 139, 34, 0.2)",
-                    layer="below"
-                )
-                
-                # Adicionar linha do meio de campo
-                mid_lon = (lon_min + lon_max) / 2
-                fig_map.add_shape(
-                    type="line",
-                    x0=mid_lon, x1=mid_lon,
-                    y0=lat_min, y1=lat_max,
-                    line=dict(color="white", width=1, dash="dash"),
-                    layer="below"
-                )
-            elif show_field:
-                # Fallback: desenhar um retângulo baseado nos dados
-                fig_map.add_shape(
-                    type="rect",
-                    x0=center_lon - 0.0005, x1=center_lon + 0.0005,
-                    y0=center_lat - 0.0003, y1=center_lat + 0.0003,
-                    line=dict(color="white", width=2),
-                    fillcolor="rgba(34, 139, 34, 0.2)",
-                    layer="below"
-                )
+                fig_map.add_shape(type="rect", x0=lon_min, x1=lon_max, y0=lat_min, y1=lat_max,
+                                  line=dict(color="white", width=2), fillcolor="rgba(34,139,34,0.2)")
+                fig_map.add_shape(type="line", x0=(lon_min+lon_max)/2, x1=(lon_min+lon_max)/2,
+                                  y0=lat_min, y1=lat_max, line=dict(color="white", width=1, dash="dash"))
             
-            # Adicionar trilha do percurso
-            if len(df_mapa_filtrado) > 1:
-                if show_heatmap:
-                    fig_map.add_trace(go.Densitymapbox(
-                        lat=df_mapa_filtrado['Latitude'],
-                        lon=df_mapa_filtrado['Longitude'],
-                        z=df_mapa_filtrado['Velocity'],
-                        radius=10,
-                        colorscale='Viridis',
-                        showscale=True,
-                        name='Velocidade',
-                        colorbar=dict(title="Velocidade<br>(km/h)")
-                    ))
-                else:
-                    hover_texts = []
-                    for _, row in df_mapa_filtrado.iterrows():
-                        time_str = seconds_to_time_str(row['Seconds'], start_dt_mapa)
-                        hover_texts.append(f"<b>Horário:</b> {time_str}<br><b>Velocidade:</b> {row['Velocity']:.1f} km/h<br><b>FC:</b> {row['HeartRate']:.0f} bpm")
-                    
-                    fig_map.add_trace(go.Scattermapbox(
-                        lat=df_mapa_filtrado['Latitude'],
-                        lon=df_mapa_filtrado['Longitude'],
-                        mode='markers',
-                        marker=dict(
-                            size=6,
-                            color=df_mapa_filtrado['Velocity'],
-                            colorscale='Viridis',
-                            showscale=True,
-                            colorbar=dict(title="Velocidade<br>(km/h)", x=1.02),
-                            cmin=df_mapa_filtrado['Velocity'].min(),
-                            cmax=df_mapa_filtrado['Velocity'].max()
-                        ),
-                        text=hover_texts,
-                        hoverinfo='text',
-                        name='Posições'
-                    ))
+            hover_texts = []
+            for _, row in df_mapa.iterrows():
+                time_str = seconds_to_time_str(row['Seconds'], start_dt_mapa)
+                hover_texts.append(f"<b>{time_str}</b><br>Vel: {row['Velocity']:.1f} km/h<br>FC: {row['HeartRate']:.0f} bpm")
             
-            # Adicionar marcadores de início e fim
-            if len(df_mapa_filtrado) > 0:
-                start_time_str = seconds_to_time_str(start_time_global, start_dt_mapa)
-                end_time_str = seconds_to_time_str(end_time_global, start_dt_mapa)
-                
-                fig_map.add_trace(go.Scattermapbox(
-                    lat=[df_mapa_filtrado['Latitude'].iloc[0]],
-                    lon=[df_mapa_filtrado['Longitude'].iloc[0]],
-                    mode='markers',
-                    marker=dict(size=16, color='green', symbol='circle'),
-                    text=[f"🏁 INÍCIO<br>Horário: {start_time_str}<br>Vel: {df_mapa_filtrado['Velocity'].iloc[0]:.1f} km/h"],
-                    hoverinfo='text',
-                    name='Início'
-                ))
-                
-                fig_map.add_trace(go.Scattermapbox(
-                    lat=[df_mapa_filtrado['Latitude'].iloc[-1]],
-                    lon=[df_mapa_filtrado['Longitude'].iloc[-1]],
-                    mode='markers',
-                    marker=dict(size=16, color='red', symbol='circle'),
-                    text=[f"🏁 FIM<br>Horário: {end_time_str}<br>Vel: {df_mapa_filtrado['Velocity'].iloc[-1]:.1f} km/h"],
-                    hoverinfo='text',
-                    name='Fim'
-                ))
+            fig_map.add_trace(go.Scattermapbox(
+                lat=df_mapa['Latitude'], lon=df_mapa['Longitude'],
+                mode='markers', marker=dict(size=6, color=df_mapa['Velocity'], colorscale='Viridis', showscale=True,
+                                           colorbar=dict(title="Velocidade")),
+                text=hover_texts, hoverinfo='text', name='Percurso'
+            ))
             
-            # Configurar layout do mapa
-            mapbox_center = dict(lat=center_lat, lon=center_lon)
+            fig_map.add_trace(go.Scattermapbox(
+                lat=[df_mapa['Latitude'].iloc[0]], lon=[df_mapa['Longitude'].iloc[0]],
+                mode='markers', marker=dict(size=16, color='green'), name='Início'
+            ))
+            fig_map.add_trace(go.Scattermapbox(
+                lat=[df_mapa['Latitude'].iloc[-1]], lon=[df_mapa['Longitude'].iloc[-1]],
+                mode='markers', marker=dict(size=16, color='red'), name='Fim'
+            ))
             
-            if estadio_selecionado:
-                lat_range = bounds_estadio[1] - bounds_estadio[0]
-                lon_range = bounds_estadio[3] - bounds_estadio[2]
-                zoom_level = 18 - min(lat_range * 100, lon_range * 100)
-                zoom_level = max(14, min(zoom_level, 18))
-            elif len(df_mapa_filtrado) > 1:
-                lat_range = df_mapa_filtrado['Latitude'].max() - df_mapa_filtrado['Latitude'].min()
-                lon_range = df_mapa_filtrado['Longitude'].max() - df_mapa_filtrado['Longitude'].min()
-                zoom_level = 18 - min(lat_range * 100, lon_range * 100)
-                zoom_level = max(14, min(zoom_level, 18))
-            else:
-                zoom_level = 15
-            
-            fig_map.update_layout(
-                mapbox=dict(
-                    style=map_style,
-                    center=mapbox_center,
-                    zoom=zoom_level
-                ),
-                margin=dict(l=0, r=0, t=30, b=0),
-                height=700,
-                title={
-                    'text': f"Trajetória de {atleta_mapa_nome} - {periodo_mapa} | {start_horario} → {end_horario} | {nome_estadio}",
-                    'x': 0.5,
-                    'xanchor': 'center'
-                },
-                hovermode='closest'
-            )
-            
+            zoom = 18 if estadio_selecionado else 15
+            fig_map.update_layout(mapbox=dict(style=map_style, center=dict(lat=center_lat, lon=center_lon), zoom=zoom),
+                                  height=700, margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig_map, use_container_width=True)
-            
-            # Estatísticas do percurso
-            with st.expander("📊 Estatísticas do Percurso Selecionado"):
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Distância percorrida", f"{df_mapa_filtrado['Odometer'].max() - df_mapa_filtrado['Odometer'].min():.0f} m")
-                with col2:
-                    st.metric("Velocidade média", f"{df_mapa_filtrado['Velocity'].mean():.1f} km/h")
-                with col3:
-                    st.metric("Velocidade máxima", f"{df_mapa_filtrado['Velocity'].max():.1f} km/h")
-                with col4:
-                    st.metric("FC média", f"{df_mapa_filtrado['HeartRate'].mean():.0f} bpm")
         
-        # ==================== TAB 2: GRÁFICOS DE DESEMPENHO COM SOBREPOSIÇÃO ====================
+        # TAB 2: GRÁFICOS DE DESEMPENHO (COMPLETO)
         with tab2:
-            st.subheader("Análise de Desempenho ao Longo do Tempo")
-            st.markdown("### 📈 Velocidade e Frequência Cardíaca - Análise Temporal")
+            st.subheader("Velocidade e Frequência Cardíaca")
             
             if len(selected_atletas) > 1:
-                atleta_temporal = st.selectbox(
-                    "Selecione o atleta para análise temporal",
-                    options=selected_atletas,
-                    index=0,
-                    key="temporal_atleta_select"
-                )
-                idx_temporal = selected_atletas.index(atleta_temporal)
-                df_temporal = dfs_filtered[idx_temporal].copy()
-                atleta_temporal_nome = atleta_temporal
-                start_dt_temporal = selected_start_datetimes[idx_temporal]
+                atleta_temp = st.selectbox("Atleta", selected_atletas, key="temp_select")
+                idx = selected_atletas.index(atleta_temp)
+                df_temp = dfs_filtered[idx].copy()
+                start_dt_temp = selected_start_datetimes[idx]
             else:
-                df_temporal = df_main.copy()
-                atleta_temporal_nome = atleta_main
-                start_dt_temporal = start_dt_main
+                df_temp = df_main.copy()
+                start_dt_temp = start_dt_main
             
-            df_temporal['Horario'] = df_temporal['Seconds'].apply(
-                lambda x: seconds_to_time_str(x, start_dt_temporal)
-            )
+            df_temp['Horario'] = df_temp['Seconds'].apply(lambda x: seconds_to_time_str(x, start_dt_temp))
             
-            fig_temporal = make_subplots(specs=[[{"secondary_y": True}]])
+            fig_temp = make_subplots(specs=[[{"secondary_y": True}]])
+            fig_temp.add_trace(go.Scatter(x=df_temp['Horario'], y=df_temp['Velocity'], mode='lines', name='Velocidade',
+                                          line=dict(color='#3498db', width=2), fill='tozeroy'), secondary_y=False)
+            fig_temp.add_trace(go.Scatter(x=df_temp['Horario'], y=df_temp['HeartRate'], mode='lines', name='FC',
+                                          line=dict(color='#e74c3c', width=2), fill='tozeroy'), secondary_y=True)
             
-            fig_temporal.add_trace(
-                go.Scatter(
-                    x=df_temporal['Horario'],
-                    y=df_temporal['Velocity'],
-                    mode='lines',
-                    name='Velocidade',
-                    line=dict(color='#3498db', width=2),
-                    fill='tozeroy',
-                    fillcolor='rgba(52, 152, 219, 0.1)'
-                ),
-                secondary_y=False
-            )
+            vel_mean = df_temp['Velocity'].mean()
+            fig_temp.add_hline(y=vel_mean, line_dash="dash", line_color="#3498db",
+                               annotation_text=f"Vel Média: {vel_mean:.1f} km/h", secondary_y=False)
+            hr_mean = df_temp['HeartRate'].mean()
+            fig_temp.add_hline(y=hr_mean, line_dash="dash", line_color="#e74c3c",
+                               annotation_text=f"FC Média: {hr_mean:.0f} bpm", secondary_y=True)
             
-            fig_temporal.add_trace(
-                go.Scatter(
-                    x=df_temporal['Horario'],
-                    y=df_temporal['HeartRate'],
-                    mode='lines',
-                    name='Frequência Cardíaca',
-                    line=dict(color='#e74c3c', width=2),
-                    fill='tozeroy',
-                    fillcolor='rgba(231, 76, 60, 0.1)'
-                ),
-                secondary_y=True
-            )
+            fig_temp.update_layout(title=f"{atleta_temp}", xaxis_title="Horário", height=500, hovermode='x unified')
+            fig_temp.update_yaxes(title_text="Velocidade (km/h)", secondary_y=False)
+            fig_temp.update_yaxes(title_text="FC (bpm)", secondary_y=True)
+            st.plotly_chart(fig_temp, use_container_width=True)
             
-            vel_mean = df_temporal['Velocity'].mean()
-            fig_temporal.add_hline(
-                y=vel_mean, line_dash="dash", line_color="#3498db",
-                annotation_text=f"Vel Média: {vel_mean:.1f} km/h",
-                annotation_position="top right",
-                secondary_y=False
-            )
-            
-            hr_mean = df_temporal['HeartRate'].mean()
-            fig_temporal.add_hline(
-                y=hr_mean, line_dash="dash", line_color="#e74c3c",
-                annotation_text=f"FC Média: {hr_mean:.0f} bpm",
-                annotation_position="bottom right",
-                secondary_y=True
-            )
-            
-            fc_max = df_temporal['HeartRate'].max()
-            fig_temporal.add_hrect(
-                y0=0, y1=fc_max*0.6, 
-                fillcolor="lightgreen", opacity=0.2,
-                line_width=0, secondary_y=True
-            )
-            fig_temporal.add_hrect(
-                y0=fc_max*0.6, y1=fc_max*0.75, 
-                fillcolor="yellow", opacity=0.2,
-                line_width=0, secondary_y=True
-            )
-            fig_temporal.add_hrect(
-                y0=fc_max*0.75, y1=fc_max*0.9, 
-                fillcolor="orange", opacity=0.2,
-                line_width=0, secondary_y=True
-            )
-            fig_temporal.add_hrect(
-                y0=fc_max*0.9, y1=fc_max, 
-                fillcolor="red", opacity=0.2,
-                line_width=0, secondary_y=True
-            )
-            
-            fig_temporal.update_layout(
-                title=f"Velocidade e Frequência Cardíaca - {atleta_temporal_nome}",
-                xaxis_title="Horário",
-                height=500,
-                hovermode='x unified',
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-            )
-            
-            fig_temporal.update_yaxes(title_text="Velocidade (km/h)", secondary_y=False, color="#3498db")
-            fig_temporal.update_yaxes(title_text="Frequência Cardíaca (bpm)", secondary_y=True, color="#e74c3c")
-            
-            st.plotly_chart(fig_temporal, use_container_width=True)
-            
-            st.markdown("### 🎯 Relação Velocidade vs Frequência Cardíaca")
-            
-            fig_scatter = px.scatter(
-                df_temporal,
-                x='Velocity',
-                y='HeartRate',
-                color='Seconds',
-                color_continuous_scale='Viridis',
-                title="Relação Velocidade vs Frequência Cardíaca",
-                labels={'Velocity': 'Velocidade (km/h)', 'HeartRate': 'Frequência Cardíaca (bpm)'}
-            )
-            fig_scatter.update_layout(height=450)
+            # Gráfico de dispersão Velocidade vs FC
+            st.markdown("### 🎯 Relação Velocidade vs FC")
+            fig_scatter = px.scatter(df_temp, x='Velocity', y='HeartRate', color='Seconds',
+                                     color_continuous_scale='Viridis', title="Velocidade vs Frequência Cardíaca")
             st.plotly_chart(fig_scatter, use_container_width=True)
             
+            # Comparação entre atletas
             if len(selected_atletas) > 1:
                 st.markdown("### 👥 Comparação entre Atletas")
-                
                 fig_comp = go.Figure()
                 for df, atleta, start_dt in zip(dfs_filtered, selected_atletas, selected_start_datetimes):
-                    df_comp_temp = df.copy()
-                    df_comp_temp['Horario'] = df_comp_temp['Seconds'].apply(lambda x: seconds_to_time_str(x, start_dt))
-                    fig_comp.add_trace(go.Scatter(
-                        x=df_comp_temp['Horario'],
-                        y=df_comp_temp['Velocity'],
-                        mode='lines',
-                        name=f'{atleta} - Velocidade',
-                        line=dict(width=2)
-                    ))
-                
-                fig_comp.update_layout(
-                    title="Comparação de Velocidade entre Atletas",
-                    xaxis_title="Horário",
-                    yaxis_title="Velocidade (km/h)",
-                    height=450,
-                    hovermode='x unified'
-                )
+                    df_comp = df.copy()
+                    df_comp['Horario'] = df_comp['Seconds'].apply(lambda x: seconds_to_time_str(x, start_dt))
+                    fig_comp.add_trace(go.Scatter(x=df_comp['Horario'], y=df_comp['Velocity'], mode='lines', name=atleta))
+                fig_comp.update_layout(title="Comparação de Velocidade", xaxis_title="Horário", height=450)
                 st.plotly_chart(fig_comp, use_container_width=True)
         
-        # ==================== TAB 3: VELOCIDADE E ACELERAÇÃO ====================
+        # TAB 3: VELOCIDADE E ACELERAÇÃO (COMPLETO)
         with tab3:
             st.subheader("Análise de Velocidade e Aceleração")
             
             if len(selected_atletas) > 1:
-                atleta_vel = st.selectbox(
-                    "Selecione o atleta para análise de velocidade",
-                    options=selected_atletas,
-                    index=0,
-                    key="vel_atleta_select"
-                )
-                idx_vel = selected_atletas.index(atleta_vel)
-                df_vel = dfs_filtered[idx_vel].copy()
+                atleta_vel = st.selectbox("Atleta", selected_atletas, key="vel_select")
+                idx = selected_atletas.index(atleta_vel)
+                df_vel = dfs_filtered[idx].copy()
             else:
                 df_vel = df_main.copy()
             
             col1, col2 = st.columns(2)
-            
             with col1:
-                fig_hist = px.histogram(df_vel, x='Velocity', nbins=40,
-                                       title="Distribuição de Velocidades",
-                                       labels={'Velocity': 'Velocidade (km/h)'},
-                                       color_discrete_sequence=['blue'])
-                fig_hist.add_vline(x=df_vel['Velocity'].mean(), 
-                                   line_dash="dash", line_color="red",
+                fig_hist = px.histogram(df_vel, x='Velocity', nbins=40, title="Distribuição de Velocidades")
+                fig_hist.add_vline(x=df_vel['Velocity'].mean(), line_dash="dash", line_color="red",
                                    annotation_text=f"Média: {df_vel['Velocity'].mean():.1f} km/h")
                 st.plotly_chart(fig_hist, use_container_width=True)
             
             with col2:
-                df_vel['Percentil_Tempo'] = pd.cut(df_vel['Seconds'], 
-                                                   bins=10,
-                                                   labels=[f'{i*10}-{(i+1)*10}%' for i in range(10)])
-                fig_box = px.box(df_vel, x='Percentil_Tempo', y='Velocity',
-                                title="Velocidade por Percentil do Tempo",
-                                labels={'Velocity': 'Velocidade (km/h)', 
-                                       'Percentil_Tempo': 'Percentil do Jogo'})
+                df_vel['Percentil'] = pd.cut(df_vel['Seconds'], bins=10, labels=[f'{i*10}-{(i+1)*10}%' for i in range(10)])
+                fig_box = px.box(df_vel, x='Percentil', y='Velocity', title="Velocidade por Percentil do Tempo")
                 st.plotly_chart(fig_box, use_container_width=True)
             
             if 'Acceleration' in df_vel.columns:
                 st.subheader("Aceleração ao longo do tempo")
                 fig_acc = go.Figure()
-                fig_acc.add_trace(go.Scatter(x=df_vel['Seconds'], y=df_vel['Acceleration'],
-                                             mode='lines', name='Aceleração',
-                                             line=dict(color='purple', width=1.5)))
-                fig_acc.add_hline(y=0, line_dash="dash", line_color="black", 
-                                 annotation_text="Repouso", annotation_position="top right")
+                fig_acc.add_trace(go.Scatter(x=df_vel['Seconds'], y=df_vel['Acceleration'], mode='lines', name='Aceleração'))
+                fig_acc.add_hline(y=0, line_dash="dash", line_color="black", annotation_text="Repouso")
                 fig_acc.update_layout(xaxis_title="Tempo (s)", yaxis_title="Aceleração (m/s²)", height=450)
                 st.plotly_chart(fig_acc, use_container_width=True)
         
-        # ==================== TAB 4: FREQUÊNCIA CARDÍACA ====================
+        # TAB 4: FREQUÊNCIA CARDÍACA (COMPLETO)
         with tab4:
             st.subheader("Análise da Frequência Cardíaca")
             
             if len(selected_atletas) > 1:
-                atleta_fc = st.selectbox(
-                    "Selecione o atleta para análise de FC",
-                    options=selected_atletas,
-                    index=0,
-                    key="fc_atleta_select"
-                )
-                idx_fc = selected_atletas.index(atleta_fc)
-                df_fc = dfs_filtered[idx_fc].copy()
+                atleta_fc = st.selectbox("Atleta", selected_atletas, key="fc_select")
+                idx = selected_atletas.index(atleta_fc)
+                df_fc = dfs_filtered[idx].copy()
             else:
                 df_fc = df_main.copy()
             
-            if 'HeartRate' in df_fc.columns:
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    fig_hr_hist = px.histogram(df_fc, x='HeartRate', nbins=30,
-                                               title="Distribuição da Frequência Cardíaca",
-                                               labels={'HeartRate': 'Frequência Cardíaca (bpm)'},
-                                               color_discrete_sequence=['red'])
-                    fig_hr_hist.add_vline(x=df_fc['HeartRate'].mean(), 
-                                          line_dash="dash", line_color="blue",
-                                          annotation_text=f"Média: {df_fc['HeartRate'].mean():.0f} bpm")
-                    st.plotly_chart(fig_hr_hist, use_container_width=True)
-                
-                with col2:
-                    fig_hr_time = go.Figure()
-                    df_fc['Horario'] = df_fc['Seconds'].apply(lambda x: seconds_to_time_str(x, reference_datetime))
-                    fig_hr_time.add_trace(go.Scatter(x=df_fc['Horario'], y=df_fc['HeartRate'],
-                                                     mode='lines', name='FC',
-                                                     line=dict(color='red', width=2)))
-                    
-                    fc_max = df_fc['HeartRate'].max()
-                    fig_hr_time.add_hrect(y0=0, y1=fc_max*0.6, fillcolor="lightgreen", opacity=0.3,
-                                         annotation_text="Recuperação", annotation_position="top left")
-                    fig_hr_time.add_hrect(y0=fc_max*0.6, y1=fc_max*0.75, fillcolor="yellow", opacity=0.3,
-                                         annotation_text="Aeróbica", annotation_position="top left")
-                    fig_hr_time.add_hrect(y0=fc_max*0.75, y1=fc_max*0.9, fillcolor="orange", opacity=0.3,
-                                         annotation_text="Anaeróbica", annotation_position="top left")
-                    fig_hr_time.add_hrect(y0=fc_max*0.9, y1=fc_max, fillcolor="red", opacity=0.3,
-                                         annotation_text="Máximo", annotation_position="top left")
-                    
-                    fig_hr_time.update_layout(xaxis_title="Horário", yaxis_title="FC (bpm)", height=450)
-                    st.plotly_chart(fig_hr_time, use_container_width=True)
-                
-                st.markdown("### 📊 Análise por Zona de Intensidade")
+            col1, col2 = st.columns(2)
+            with col1:
+                fig_hr_hist = px.histogram(df_fc, x='HeartRate', nbins=30, title="Distribuição da FC")
+                fig_hr_hist.add_vline(x=df_fc['HeartRate'].mean(), line_dash="dash", line_color="blue",
+                                      annotation_text=f"Média: {df_fc['HeartRate'].mean():.0f} bpm")
+                st.plotly_chart(fig_hr_hist, use_container_width=True)
+            
+            with col2:
+                df_fc['Horario'] = df_fc['Seconds'].apply(lambda x: seconds_to_time_str(x, reference_datetime))
+                fig_hr_time = go.Figure()
+                fig_hr_time.add_trace(go.Scatter(x=df_fc['Horario'], y=df_fc['HeartRate'], mode='lines', name='FC',
+                                                 line=dict(color='red', width=2)))
                 fc_max = df_fc['HeartRate'].max()
-                df_fc['Zona_FC'] = pd.cut(df_fc['HeartRate'], 
-                                          bins=[0, fc_max*0.6, fc_max*0.75, fc_max*0.9, fc_max],
-                                          labels=['Recuperação', 'Aeróbica', 'Anaeróbica', 'Máximo'])
-                
-                zona_stats = df_fc.groupby('Zona_FC', observed=True).agg({
-                    'HeartRate': ['count', 'mean', 'min', 'max'],
-                    'Velocity': 'mean' if 'Velocity' in df_fc.columns else lambda x: 0
-                }).round(0)
-                
-                zona_stats.columns = ['Contagem', 'FC Média', 'FC Mín', 'FC Máx', 'Velocidade Média']
-                zona_stats['% do Tempo'] = (zona_stats['Contagem'] / len(df_fc) * 100).round(1).astype(str) + '%'
-                st.dataframe(zona_stats, use_container_width=True)
+                fig_hr_time.add_hrect(y0=0, y1=fc_max*0.6, fillcolor="lightgreen", opacity=0.3, annotation_text="Recuperação")
+                fig_hr_time.add_hrect(y0=fc_max*0.6, y1=fc_max*0.75, fillcolor="yellow", opacity=0.3, annotation_text="Aeróbica")
+                fig_hr_time.add_hrect(y0=fc_max*0.75, y1=fc_max*0.9, fillcolor="orange", opacity=0.3, annotation_text="Anaeróbica")
+                fig_hr_time.add_hrect(y0=fc_max*0.9, y1=fc_max, fillcolor="red", opacity=0.3, annotation_text="Máximo")
+                fig_hr_time.update_layout(xaxis_title="Horário", yaxis_title="FC (bpm)", height=450)
+                st.plotly_chart(fig_hr_time, use_container_width=True)
+            
+            # Zonas de intensidade
+            st.markdown("### 📊 Análise por Zona de Intensidade")
+            fc_max = df_fc['HeartRate'].max()
+            df_fc['Zona'] = pd.cut(df_fc['HeartRate'], bins=[0, fc_max*0.6, fc_max*0.75, fc_max*0.9, fc_max],
+                                   labels=['Recuperação', 'Aeróbica', 'Anaeróbica', 'Máximo'])
+            zona_stats = df_fc.groupby('Zona', observed=True).agg({'HeartRate': 'count', 'Velocity': 'mean'}).round(0)
+            zona_stats.columns = ['Tempo (samples)', 'Vel Média']
+            zona_stats['% Tempo'] = (zona_stats['Tempo (samples)'] / len(df_fc) * 100).round(1).astype(str) + '%'
+            st.dataframe(zona_stats, use_container_width=True)
         
-        # ==================== TAB 5: ACELERAÇÃO VS VELOCIDADE COM QUADRANTES ====================
+        # TAB 5: ACELERAÇÃO VS VELOCIDADE COM QUADRANTES (COMPLETO)
         with tab5:
-            st.subheader("🔄 Relação Aceleração vs Velocidade")
-            st.markdown("""
-            O gráfico abaixo mostra a relação entre **Aceleração (m/s²)** e **Velocidade (km/h)** para cada ponto de registro.
-            Os quadrantes ajudam a identificar os padrões de movimento do atleta.
-            """)
+            st.subheader("Relação Aceleração vs Velocidade")
             
             if len(selected_atletas) > 1:
-                atleta_acc = st.selectbox(
-                    "Selecione o atleta para análise de aceleração",
-                    options=selected_atletas,
-                    index=0,
-                    key="acc_atleta_select"
-                )
-                idx_acc = selected_atletas.index(atleta_acc)
-                df_acc = dfs_filtered[idx_acc].copy()
+                atleta_acc = st.selectbox("Atleta", selected_atletas, key="acc_select")
+                idx = selected_atletas.index(atleta_acc)
+                df_acc = dfs_filtered[idx].copy()
             else:
                 df_acc = df_main.copy()
             
-            if 'Acceleration' in df_acc.columns and 'Velocity' in df_acc.columns:
+            if 'Acceleration' in df_acc.columns:
                 acc_data = df_acc['Acceleration'].values
                 vel_data = df_acc['Velocity'].values
-                
                 mean_acc = np.mean(acc_data)
                 mean_vel = np.mean(vel_data)
                 
@@ -1635,616 +800,250 @@ if uploaded_files:
                 
                 df_acc['Quadrante'] = quadrantes
                 
-                cores_quadrantes = {
-                    'Q1 - Alta Vel + Alta Acel': '#e74c3c',
-                    'Q2 - Baixa Vel + Alta Acel': '#f39c12',
-                    'Q3 - Baixa Vel + Baixa Acel': '#2ecc71',
-                    'Q4 - Alta Vel + Baixa Acel': '#3498db'
-                }
+                cores = {'Q1 - Alta Vel + Alta Acel': '#e74c3c', 'Q2 - Baixa Vel + Alta Acel': '#f39c12',
+                         'Q3 - Baixa Vel + Baixa Acel': '#2ecc71', 'Q4 - Alta Vel + Baixa Acel': '#3498db'}
                 
-                fig_acc_vel = go.Figure()
+                fig_acc = go.Figure()
+                for quad, cor in cores.items():
+                    mask = df_acc['Quadrante'] == quad
+                    fig_acc.add_trace(go.Scatter(x=df_acc[mask]['Velocity'], y=df_acc[mask]['Acceleration'],
+                                                 mode='markers', name=quad, marker=dict(size=8, color=cor, opacity=0.6)))
                 
-                for quadrante, cor in cores_quadrantes.items():
-                    mask = df_acc['Quadrante'] == quadrante
-                    fig_acc_vel.add_trace(go.Scatter(
-                        x=df_acc[mask]['Velocity'],
-                        y=df_acc[mask]['Acceleration'],
-                        mode='markers',
-                        name=quadrante,
-                        marker=dict(size=8, color=cor, opacity=0.6, symbol='circle'),
-                        text=[f"<b>Horário:</b> {seconds_to_time_str(t, reference_datetime)}<br><b>Vel:</b> {v:.1f} km/h<br><b>Acel:</b> {a:.2f} m/s²"
-                              for t, v, a in zip(df_acc[mask]['Seconds'] if 'Seconds' in df_acc.columns else range(len(df_acc[mask])),
-                                                df_acc[mask]['Velocity'],
-                                                df_acc[mask]['Acceleration'])],
-                        hoverinfo='text'
-                    ))
+                fig_acc.add_vline(x=mean_vel, line_dash="dash", line_color="gray",
+                                  annotation_text=f"Vel Média: {mean_vel:.1f}")
+                fig_acc.add_hline(y=mean_acc, line_dash="dash", line_color="gray",
+                                  annotation_text=f"Acel Média: {mean_acc:.2f}")
+                fig_acc.update_layout(title="Aceleração vs Velocidade", xaxis_title="Velocidade (km/h)",
+                                      yaxis_title="Aceleração (m/s²)", height=600)
+                st.plotly_chart(fig_acc, use_container_width=True)
                 
-                fig_acc_vel.add_vline(x=mean_vel, line_dash="dash", line_color="gray", 
-                                     annotation_text=f"Média Vel: {mean_vel:.1f} km/h", 
-                                     annotation_position="top")
-                fig_acc_vel.add_hline(y=mean_acc, line_dash="dash", line_color="gray", 
-                                     annotation_text=f"Média Acel: {mean_acc:.2f} m/s²", 
-                                     annotation_position="right")
+                # Estatísticas por quadrante
+                quad_stats = df_acc.groupby('Quadrante').agg({'Velocity': ['count', 'mean'], 'Acceleration': 'mean'}).round(2)
+                quad_stats.columns = ['Contagem', 'Vel Média', 'Acel Média']
+                quad_stats['% Tempo'] = (quad_stats['Contagem'] / len(df_acc) * 100).round(1).astype(str) + '%'
+                st.dataframe(quad_stats, use_container_width=True)
                 
-                fig_acc_vel.update_layout(
-                    title="Relação Aceleração vs Velocidade",
-                    xaxis_title="Velocidade (km/h)",
-                    yaxis_title="Aceleração (m/s²)",
-                    height=600,
-                    legend_title="Quadrantes",
-                    hovermode='closest'
-                )
-                
-                st.plotly_chart(fig_acc_vel, use_container_width=True)
-                
-                st.markdown("### 📊 Estatísticas por Quadrante")
-                
-                quadrant_stats = df_acc.groupby('Quadrante').agg({
-                    'Velocity': ['count', 'mean', 'min', 'max', 'std'],
-                    'Acceleration': ['mean', 'min', 'max', 'std']
-                }).round(2)
-                
-                quadrant_stats.columns = ['Contagem', 'Vel Média', 'Vel Mín', 'Vel Máx', 'Vel Std', 
-                                         'Acel Média', 'Acel Mín', 'Acel Máx', 'Acel Std']
-                quadrant_stats['% do Tempo'] = (quadrant_stats['Contagem'] / len(df_acc) * 100).round(1).astype(str) + '%'
-                
-                st.dataframe(quadrant_stats, use_container_width=True)
-                
-                with st.expander("📖 Interpretação dos Quadrantes"):
-                    st.markdown("""
-                    | Quadrante | Significado | Interpretação no Esporte |
-                    |-----------|-------------|--------------------------|
-                    | **Q1 - Alta Vel + Alta Acel** | Alta velocidade com aceleração positiva | **Esforço máximo** - Sprints, arrancadas |
-                    | **Q2 - Baixa Vel + Alta Acel** | Baixa velocidade com aceleração positiva | **Partidas** - Saídas de posição parada |
-                    | **Q3 - Baixa Vel + Baixa Acel** | Baixa velocidade com desaceleração | **Recuperação** - Movimentos de baixa intensidade |
-                    | **Q4 - Alta Vel + Baixa Acel** | Alta velocidade com desaceleração | **Frenagem** - Desaceleração após sprint |
-                    """)
-                
-                st.markdown("### 🎯 Distribuição do Tempo por Quadrante")
-                fig_pie = px.pie(
-                    quadrant_stats, 
-                    values='Contagem', 
-                    names=quadrant_stats.index,
-                    title="Proporção de Tempo em Cada Quadrante",
-                    color_discrete_sequence=['#e74c3c', '#f39c12', '#2ecc71', '#3498db']
-                )
-                fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+                # Gráfico de pizza
+                fig_pie = px.pie(quad_stats, values='Contagem', names=quad_stats.index, title="Distribuição por Quadrante")
                 st.plotly_chart(fig_pie, use_container_width=True)
         
-        # ==================== TAB 6: ENTROPIA AMOSTRAL ====================
+        # TAB 6: ENTROPIA AMOSTRAL (COMPLETO)
         with tab6:
-            st.subheader("📊 Entropia Amostral - Regularidade dos Movimentos")
-            st.markdown("""
-            A **Entropia Amostral (Sample Entropy)** mede a **regularidade e previsibilidade** dos dados.
-            - **Maior entropia** = maior complexidade, movimentos variados e imprevisíveis
-            - **Menor entropia** = padrões mais regulares, repetitivos e previsíveis
-            """)
+            st.subheader("Entropia Amostral - Regularidade dos Movimentos")
             
             if len(selected_atletas) > 1:
-                atleta_entropy = st.selectbox(
-                    "Selecione o atleta para análise de entropia",
-                    options=selected_atletas,
-                    index=0,
-                    key="entropy_atleta_select"
-                )
-                idx_entropy = selected_atletas.index(atleta_entropy)
-                df_entropy = dfs_filtered[idx_entropy].copy()
+                atleta_ent = st.selectbox("Atleta", selected_atletas, key="ent_select")
+                idx = selected_atletas.index(atleta_ent)
+                df_ent = dfs_filtered[idx].copy()
             else:
-                df_entropy = df_main.copy()
+                df_ent = df_main.copy()
             
-            var_entropy_options = {}
-            if 'Velocity' in df_entropy.columns:
-                var_entropy_options['Velocity'] = 'Velocidade (km/h)'
-            if 'HeartRate' in df_entropy.columns:
-                var_entropy_options['HeartRate'] = 'Frequência Cardíaca (bpm)'
-            if 'Acceleration' in df_entropy.columns:
-                var_entropy_options['Acceleration'] = 'Aceleração (m/s²)'
-            if 'PlayerLoad' in df_entropy.columns:
-                var_entropy_options['PlayerLoad'] = 'Carga do Jogador'
+            var_options = {}
+            for col in ['Velocity', 'HeartRate', 'Acceleration']:
+                if col in df_ent.columns:
+                    var_options[col] = {'Velocity': 'Velocidade (km/h)', 'HeartRate': 'FC (bpm)', 'Acceleration': 'Aceleração (m/s²)'}[col]
             
-            selected_entropy_var = st.selectbox(
-                "Selecione a variável para análise de entropia",
-                options=list(var_entropy_options.keys()),
-                format_func=lambda x: var_entropy_options[x],
-                key="entropy_var"
-            )
+            selected_var = st.selectbox("Variável", list(var_options.keys()), format_func=lambda x: var_options[x])
             
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                m_value = st.selectbox("Comprimento da sequência (m)", [1, 2, 3], index=1)
-            with col2:
-                r_value = st.slider("Tolerância (r)", 0.1, 0.5, 0.2, step=0.05)
-            with col3:
-                use_rolling = st.checkbox("Análise por janela deslizante", value=True)
+            col_m, col_r, col_roll = st.columns(3)
+            with col_m:
+                m_val = st.selectbox("m (sequência)", [1, 2, 3], index=1)
+            with col_r:
+                r_val = st.slider("r (tolerância)", 0.1, 0.5, 0.2, step=0.05)
+            with col_roll:
+                use_rolling = st.checkbox("Análise por janela", value=True)
             
-            process_button = st.button("🚀 Processar Análise de Entropia Amostral", type="primary", use_container_width=True)
-            
-            if process_button:
-                data_series = df_entropy[selected_entropy_var].dropna().values
-                
-                if len(data_series) > 30:
-                    with st.spinner("Calculando entropia amostral..."):
-                        sample_val = sample_entropy_fast(data_series, m=m_value, r=r_value)
-                        cv_val = np.std(data_series) / np.mean(data_series) if np.mean(data_series) > 0 else 0
+            if st.button("🚀 Processar Entropia", type="primary"):
+                data = df_ent[selected_var].dropna().values
+                if len(data) > 30:
+                    entropy = sample_entropy_fast(data, m=m_val, r=r_val)
+                    st.metric("Entropia Amostral Global", f"{entropy:.4f}")
                     
-                    st.markdown("### 📈 Métrica de Entropia Amostral Global")
-                    col_a, col_b = st.columns(2)
-                    
-                    with col_a:
-                        st.metric("Entropia Amostral", f"{sample_val:.4f}" if not np.isnan(sample_val) else "N/A")
-                    with col_b:
-                        st.metric("Coeficiente de Variação", f"{cv_val:.3f}")
-                    
-                    st.markdown("**🏷️ Classificação:**")
-                    if sample_val < 0.5:
-                        st.info("🔵 **Baixa entropia** - Movimento padronizado e repetitivo")
-                    elif sample_val < 1.2:
-                        st.success("🟢 **Média entropia** - Variabilidade normal do esporte")
+                    if entropy < 0.5:
+                        st.info("🔵 Baixa entropia - Movimento repetitivo (possível fadiga)")
+                    elif entropy < 1.2:
+                        st.success("🟢 Média entropia - Variabilidade normal")
                     else:
-                        st.warning("🟠 **Alta entropia** - Grande variabilidade e imprevisibilidade")
+                        st.warning("🟠 Alta entropia - Grande variabilidade")
                     
-                    st.markdown("### 📉 Série Temporal")
-                    fig_entropy_time = go.Figure()
-                    time_x = df_entropy['Seconds'].values if 'Seconds' in df_entropy.columns else range(len(data_series))
-                    horarios = [seconds_to_time_str(t, reference_datetime) for t in time_x]
+                    # Série temporal
+                    fig_ts = go.Figure()
+                    horarios = [seconds_to_time_str(t, reference_datetime) for t in df_ent['Seconds'].values[:len(data)]]
+                    fig_ts.add_trace(go.Scatter(x=horarios, y=data, mode='lines', name=var_options[selected_var]))
+                    fig_ts.update_layout(title="Série Temporal", xaxis_title="Horário", height=400)
+                    st.plotly_chart(fig_ts, use_container_width=True)
                     
-                    fig_entropy_time.add_trace(
-                        go.Scatter(x=horarios, y=data_series, mode='lines', 
-                                  line=dict(color='blue', width=2),
-                                  name=var_entropy_options[selected_entropy_var])
-                    )
-                    
-                    mean_val = np.mean(data_series)
-                    fig_entropy_time.add_hline(y=mean_val, line_dash="dash", line_color="green", 
-                                              annotation_text=f"Média: {mean_val:.2f}")
-                    
-                    fig_entropy_time.update_layout(
-                        title=f"Série Temporal - {var_entropy_options[selected_entropy_var]}",
-                        xaxis_title="Horário",
-                        yaxis_title=var_entropy_options[selected_entropy_var],
-                        height=400
-                    )
-                    st.plotly_chart(fig_entropy_time, use_container_width=True)
-                    
-                    if use_rolling and len(data_series) > 100:
-                        with st.spinner("Calculando entropia por janela..."):
-                            window_size = min(100, len(data_series) // 5)
-                            positions, rolling_ent = rolling_sample_entropy(data_series, 
-                                                                            window_size=window_size, 
-                                                                            step=window_size//3,
-                                                                            m=m_value, r=r_value)
-                        
+                    # Rolling entropy
+                    if use_rolling and len(data) > 100:
+                        positions, rolling_ent = rolling_sample_entropy(data, window_size=50, step=20, m=m_val, r=r_val)
                         if len(rolling_ent) > 0:
-                            st.markdown("### 📊 Evolução da Entropia Amostral")
-                            fig_rolling = go.Figure()
-                            
-                            if 'Seconds' in df_entropy.columns:
-                                time_positions = np.interp(positions, range(len(data_series)), time_x)
-                                horarios_pos = [seconds_to_time_str(t, reference_datetime) for t in time_positions]
-                            else:
-                                horarios_pos = positions
-                            
-                            fig_rolling.add_trace(
-                                go.Scatter(x=horarios_pos, y=rolling_ent, mode='lines+markers',
-                                          line=dict(color='red', width=2), marker=dict(size=6),
-                                          name="Entropia Amostral")
-                            )
-                            fig_rolling.add_hline(y=np.nanmean(rolling_ent), line_dash="dash", 
-                                                  line_color="orange", annotation_text=f"Média: {np.nanmean(rolling_ent):.3f}")
-                            
-                            fig_rolling.update_layout(
-                                title="Entropia Amostral por Janela Deslizante",
-                                xaxis_title="Horário",
-                                yaxis_title="Entropia Amostral",
-                                height=400
-                            )
-                            st.plotly_chart(fig_rolling, use_container_width=True)
+                            fig_roll = go.Figure()
+                            time_pos = [seconds_to_time_str(df_ent['Seconds'].values[int(p)], reference_datetime) for p in positions]
+                            fig_roll.add_trace(go.Scatter(x=time_pos, y=rolling_ent, mode='lines+markers', name="Entropia"))
+                            fig_roll.update_layout(title="Entropia por Janela Deslizante", xaxis_title="Horário", height=400)
+                            st.plotly_chart(fig_roll, use_container_width=True)
                             
                             if len(rolling_ent) > 3:
                                 trend = rolling_ent[-1] - rolling_ent[0]
                                 if trend > 0.1:
-                                    st.info("📈 **Tendência: Entropia aumentando** - Movimentos mais variáveis")
+                                    st.info("📈 Tendência: Entropia aumentando")
                                 elif trend < -0.1:
-                                    st.warning("📉 **Tendência: Entropia diminuindo** - Possível fadiga")
+                                    st.warning("📉 Tendência: Entropia diminuindo (possível fadiga)")
                                 else:
-                                    st.success("➡️ **Tendência: Entropia estável** - Comportamento consistente")
-                    
-                    with st.expander("📌 Valores de Referência para Entropia Amostral"):
-                        st.markdown("""
-                        | Categoria | Entropia Amostral | Interpretação |
-                        |-----------|------------------|---------------|
-                        | **Baixa** | < 0.5 | Movimento repetitivo, padrões regulares |
-                        | **Média** | 0.5 - 1.2 | Variabilidade normal do esporte |
-                        | **Alta** | > 1.2 | Alta complexidade, movimentos variados |
-                        
-                        **Aplicações:**
-                        - Entropia baixa pode indicar **fadiga**
-                        - Entropia alta indica **alta variabilidade** e adaptabilidade
-                        """)
+                                    st.success("➡️ Tendência estável")
                 else:
-                    st.warning(f"⚠️ Dados insuficientes. Necessários 30 pontos. Atual: {len(data_series)}")
-            else:
-                st.info("👆 **Clique no botão acima para iniciar a análise de entropia amostral.**")
+                    st.warning(f"Dados insuficientes: {len(data)} pontos (mínimo 30)")
         
-        # ==================== TAB 7: ANÁLISE TÁTICA POR ZONAS ====================
+        # TAB 7: ANÁLISE TÁTICA POR ZONAS (COMPLETO)
         with tab7:
-            st.subheader("📐 Análise Tática Integrada: Demanda Física por Zona do Campo")
-            st.markdown("""
-            Esta ferramenta permite analisar como o atleta distribui sua **demanda física** (tempo, distância, intensidade) 
-            pelas **diferentes zonas do campo**, auxiliando na integração de dados físicos e táticos.
-            """)
+            st.subheader("Análise Tática Integrada")
             
             if len(selected_atletas) > 1:
-                atleta_tatico = st.selectbox(
-                    "Selecione o atleta para análise tática",
-                    options=selected_atletas,
-                    index=0,
-                    key="tatico_atleta_select"
-                )
-                idx_tatico = selected_atletas.index(atleta_tatico)
-                df_tatico = dfs_filtered[idx_tatico].copy()
-                atleta_tatico_nome = atleta_tatico
-                start_dt_tatico = selected_start_datetimes[idx_tatico]
+                atleta_tat = st.selectbox("Atleta", selected_atletas, key="tat_select")
+                idx = selected_atletas.index(atleta_tat)
+                df_tat = dfs_filtered[idx].copy()
+                start_dt_tat = selected_start_datetimes[idx]
             else:
-                df_tatico = df_main.copy()
-                atleta_tatico_nome = atleta_main
-                start_dt_tatico = start_dt_main
+                df_tat = df_main.copy()
+                start_dt_tat = start_dt_main
             
-            st.markdown("#### 🎚️ Filtros Específicos para Análise Tática")
-            col_filtro1, col_filtro2 = st.columns(2)
-            
-            with col_filtro1:
-                use_custom_time = st.checkbox("Usar intervalo de tempo personalizado para análise tática", value=False)
-                if use_custom_time:
-                    min_sec_custom = float(df_tatico['Seconds'].min())
-                    max_sec_custom = float(df_tatico['Seconds'].max())
-                    custom_range = st.slider(
-                        "Selecione o intervalo de tempo para análise tática",
-                        min_value=min_sec_custom,
-                        max_value=max_sec_custom,
-                        value=(min_sec_custom, max_sec_custom),
-                        step=1.0,
-                        format="%d",
-                        key="tatico_time_slider"
-                    )
-                    start_time_tatico, end_time_tatico = custom_range
-                    time_filter_tatico = (df_tatico['Seconds'] >= start_time_tatico) & (df_tatico['Seconds'] <= end_time_tatico)
-                    df_tatico = df_tatico[time_filter_tatico].copy()
-                    st.info(f"Intervalo personalizado: {seconds_to_time_str(start_time_tatico, start_dt_tatico)} → {seconds_to_time_str(end_time_tatico, start_dt_tatico)}")
-                else:
-                    st.info(f"Usando filtro global: {start_horario} → {end_horario}")
-            
-            with col_filtro2:
-                use_custom_speed = st.checkbox("Usar filtro de velocidade personalizado", value=False)
-                if use_custom_speed:
-                    min_speed_custom = float(df_tatico['Velocity'].min())
-                    max_speed_custom = float(df_tatico['Velocity'].max())
-                    custom_speed_range = st.slider(
-                        "Filtro de velocidade (km/h)",
-                        min_value=min_speed_custom,
-                        max_value=max_speed_custom,
-                        value=(min_speed_custom, max_speed_custom),
-                        step=0.5,
-                        key="tatico_speed_slider"
-                    )
-                    speed_filter_tatico = (df_tatico['Velocity'] >= custom_speed_range[0]) & (df_tatico['Velocity'] <= custom_speed_range[1])
-                    df_tatico = df_tatico[speed_filter_tatico].copy()
-                    st.info(f"Velocidade filtrada: {custom_speed_range[0]:.1f} - {custom_speed_range[1]:.1f} km/h")
-                else:
-                    st.info(f"Usando filtro global: {speed_range[0]:.1f} - {speed_range[1]:.1f} km/h")
-            
-            if len(df_tatico) == 0:
-                st.warning("⚠️ Nenhum dado disponível com os filtros selecionados.")
-                st.stop()
-            
-            st.markdown("---")
-            
-            st.markdown("#### 🧩 Configuração da Divisão do Campo")
-            col_div1, col_div2 = st.columns(2)
-            
-            with col_div1:
-                num_linhas = st.number_input("Número de linhas (divisão horizontal)", min_value=1, max_value=10, value=3, step=1,
-                                            help="Divide o campo longitudinalmente (ex: 3 = terços defensivo, médio, ofensivo)")
-                mostrar_linhas = st.checkbox("Mostrar divisão em linhas no gráfico", value=True)
-            
-            with col_div2:
-                num_colunas = st.number_input("Número de colunas (divisão vertical)", min_value=1, max_value=10, value=3, step=1,
-                                            help="Divide o campo transversalmente (ex: 3 = corredores esquerdo, central, direito)")
-                mostrar_colunas = st.checkbox("Mostrar divisão em colunas no gráfico", value=True)
+            col_lin, col_col = st.columns(2)
+            with col_lin:
+                num_linhas = st.number_input("Linhas (horizontal)", 1, 10, 3)
+            with col_col:
+                num_colunas = st.number_input("Colunas (vertical)", 1, 10, 3)
             
             if estadio_selecionado:
                 lat_min, lat_max, lon_min, lon_max = bounds_estadio
-                st.info(f"Usando limites do {nome_estadio} para zoneamento")
             else:
-                lat_min, lat_max = df_tatico['Latitude'].min(), df_tatico['Latitude'].max()
-                lon_min, lon_max = df_tatico['Longitude'].min(), df_tatico['Longitude'].max()
-                st.info("Usando limites baseados nos dados do atleta")
+                lat_min, lat_max = df_tat['Latitude'].min(), df_tat['Latitude'].max()
+                lon_min, lon_max = df_tat['Longitude'].min(), df_tat['Longitude'].max()
             
             linhas_bins = np.linspace(lat_min, lat_max, num_linhas + 1)
             colunas_bins = np.linspace(lon_min, lon_max, num_colunas + 1)
             
-            df_tatico['Zona_Linha'] = pd.cut(df_tatico['Latitude'], bins=linhas_bins, labels=[f'L{i+1}' for i in range(num_linhas)], include_lowest=True)
-            df_tatico['Zona_Coluna'] = pd.cut(df_tatico['Longitude'], bins=colunas_bins, labels=[f'C{i+1}' for i in range(num_colunas)], include_lowest=True)
-            df_tatico['Zona'] = df_tatico['Zona_Linha'].astype(str) + '-' + df_tatico['Zona_Coluna'].astype(str)
+            df_tat['Zona'] = (pd.cut(df_tat['Latitude'], bins=linhas_bins, labels=[f'L{i+1}' for i in range(num_linhas)]).astype(str) + '-' +
+                              pd.cut(df_tat['Longitude'], bins=colunas_bins, labels=[f'C{i+1}' for i in range(num_colunas)]).astype(str))
             
-            st.markdown("#### 📊 Demanda Física por Zona")
-            
-            zona_metrics = df_tatico.groupby('Zona', observed=True).agg({
+            # Métricas por zona
+            zona_metrics = df_tat.groupby('Zona').agg({
                 'Seconds': 'count',
                 'Velocity': ['mean', 'max'],
-                'HeartRate': ['mean', 'max'],
+                'HeartRate': ['mean', 'max']
             }).round(2)
-            
             zona_metrics.columns = ['Contagem', 'Vel_Média', 'Vel_Máx', 'FC_Média', 'FC_Máx']
             
-            if len(df_tatico) > 1:
-                sample_rate = df_tatico['Seconds'].diff().median()
-                zona_metrics['Tempo_Total(s)'] = zona_metrics['Contagem'] * sample_rate
-                zona_metrics['Tempo_Total(min)'] = zona_metrics['Tempo_Total(s)'] / 60
-            else:
-                zona_metrics['Tempo_Total(s)'] = 0
-                zona_metrics['Tempo_Total(min)'] = 0
+            if len(df_tat) > 1:
+                sample_rate = df_tat['Seconds'].diff().median()
+                zona_metrics['Tempo(s)'] = zona_metrics['Contagem'] * sample_rate
+                zona_metrics['Tempo(min)'] = zona_metrics['Tempo(s)'] / 60
             
-            if 'Odometer' in df_tatico.columns:
-                df_tatico = df_tatico.sort_values('Seconds')
-                df_tatico['Zona_Anterior'] = df_tatico['Zona'].shift(1)
-                df_tatico['Delta_Odometer'] = df_tatico['Odometer'].diff()
-                df_tatico['Dist_Zona'] = df_tatico.apply(
-                    lambda row: row['Delta_Odometer'] if row['Zona'] == row['Zona_Anterior'] else 0, axis=1
-                )
-                dist_por_zona = df_tatico.groupby('Zona')['Dist_Zona'].sum().round(0)
+            if 'Odometer' in df_tat.columns:
+                df_tat_sorted = df_tat.sort_values('Seconds')
+                df_tat_sorted['Zona_Ant'] = df_tat_sorted['Zona'].shift(1)
+                df_tat_sorted['Dist'] = df_tat_sorted['Odometer'].diff()
+                df_tat_sorted['Dist_Zona'] = df_tat_sorted.apply(lambda r: r['Dist'] if r['Zona'] == r['Zona_Ant'] else 0, axis=1)
+                dist_por_zona = df_tat_sorted.groupby('Zona')['Dist_Zona'].sum().round(0)
                 zona_metrics['Distância(m)'] = dist_por_zona
-            else:
-                zona_metrics['Distância(m)'] = 0
             
             zona_metrics['Intensidade'] = (zona_metrics['Vel_Média'] * zona_metrics['Contagem']) / zona_metrics['Contagem'].sum() * 100
-            
             st.dataframe(zona_metrics.style.format({
-                'Contagem': '{:.0f}',
-                'Vel_Média': '{:.1f}',
-                'Vel_Máx': '{:.1f}',
-                'FC_Média': '{:.0f}',
-                'FC_Máx': '{:.0f}',
-                'Tempo_Total(s)': '{:.1f}',
-                'Tempo_Total(min)': '{:.1f}',
-                'Distância(m)': '{:.0f}',
-                'Intensidade': '{:.1f}%'
+                'Contagem': '{:.0f}', 'Vel_Média': '{:.1f}', 'Vel_Máx': '{:.1f}',
+                'FC_Média': '{:.0f}', 'FC_Máx': '{:.0f}', 'Tempo(s)': '{:.1f}',
+                'Tempo(min)': '{:.1f}', 'Distância(m)': '{:.0f}', 'Intensidade': '{:.1f}%'
             }), use_container_width=True)
             
-            st.markdown("#### 🗺️ Visualização Tática")
+            # Visualização
+            viz_type = st.radio("Visualização", ["Trajetória por zona", "Mapa de calor tempo", "Mapa de calor velocidade"], horizontal=True)
             
-            viz_type = st.radio(
-                "Tipo de visualização",
-                options=["Trajetória com cores por zona", "Mapa de calor de tempo", "Mapa de calor de velocidade"],
-                horizontal=True,
-                key="tatico_viz_type"
-            )
+            fig_tat = go.Figure()
+            fig_tat.add_shape(type="rect", x0=lon_min, x1=lon_max, y0=lat_min, y1=lat_max,
+                              line=dict(color="white", width=2), fillcolor="rgba(34,139,34,0.2)")
             
-            fig_tatico = go.Figure()
+            for linha in linhas_bins[1:-1]:
+                fig_tat.add_shape(type="line", x0=lon_min, x1=lon_max, y0=linha, y1=linha,
+                                  line=dict(color="white", width=1, dash="dash"))
+            for coluna in colunas_bins[1:-1]:
+                fig_tat.add_shape(type="line", x0=coluna, x1=coluna, y0=lat_min, y1=lat_max,
+                                  line=dict(color="white", width=1, dash="dash"))
             
-            fig_tatico.add_shape(
-                type="rect",
-                x0=lon_min, x1=lon_max,
-                y0=lat_min, y1=lat_max,
-                line=dict(color="white", width=2),
-                fillcolor="rgba(34, 139, 34, 0.2)",
-                layer="below"
-            )
-            
-            if mostrar_linhas:
-                for linha in linhas_bins[1:-1]:
-                    fig_tatico.add_shape(
-                        type="line",
-                        x0=lon_min, x1=lon_max,
-                        y0=linha, y1=linha,
-                        line=dict(color="rgba(255,255,255,0.5)", width=1, dash="dash"),
-                        layer="below"
-                    )
-            
-            if mostrar_colunas:
-                for coluna in colunas_bins[1:-1]:
-                    fig_tatico.add_shape(
-                        type="line",
-                        x0=coluna, x1=coluna,
-                        y0=lat_min, y1=lat_max,
-                        line=dict(color="rgba(255,255,255,0.5)", width=1, dash="dash"),
-                        layer="below"
-                    )
-            
-            if viz_type == "Trajetória com cores por zona":
-                zonas_unicas = df_tatico['Zona'].unique()
+            if viz_type == "Trajetória por zona":
                 cores = px.colors.qualitative.Set3
-                cor_por_zona = {zona: cores[i % len(cores)] for i, zona in enumerate(zonas_unicas)}
-                
-                for zona, group in df_tatico.groupby('Zona'):
-                    fig_tatico.add_trace(go.Scatter(
-                        x=group['Longitude'],
-                        y=group['Latitude'],
-                        mode='markers',
-                        name=f'Zona {zona}',
-                        marker=dict(size=4, opacity=0.7, color=cor_por_zona[zona]),
-                        text=[f"<b>Zona:</b> {zona}<br><b>Horário:</b> {seconds_to_time_str(t, start_dt_tatico)}<br><b>Vel:</b> {v:.1f} km/h<br><b>FC:</b> {fc:.0f} bpm"
-                              for t, v, fc in zip(group['Seconds'], group['Velocity'], group['HeartRate'])],
-                        hoverinfo='text',
-                        showlegend=True
-                    ))
+                for i, (zona, group) in enumerate(df_tat.groupby('Zona')):
+                    fig_tat.add_trace(go.Scatter(x=group['Longitude'], y=group['Latitude'], mode='markers',
+                                                 name=f'Zona {zona}', marker=dict(size=4, color=cores[i % len(cores)], opacity=0.7),
+                                                 text=[f"Zona {zona}<br>Horário: {seconds_to_time_str(t, start_dt_tat)}<br>Vel: {v:.1f}<br>FC: {fc:.0f}"
+                                                       for t, v, fc in zip(group['Seconds'], group['Velocity'], group['HeartRate'])],
+                                                 hoverinfo='text'))
             
-            elif viz_type == "Mapa de calor de tempo":
-                heatmap_data = np.zeros((num_linhas, num_colunas))
+            elif viz_type == "Mapa de calor tempo":
+                heatmap = np.zeros((num_linhas, num_colunas))
                 for i in range(num_linhas):
                     for j in range(num_colunas):
-                        zona_label = f'L{i+1}-C{j+1}'
-                        count = zona_metrics.loc[zona_label, 'Contagem'] if zona_label in zona_metrics.index else 0
-                        heatmap_data[i, j] = count
-                
-                fig_tatico.add_trace(go.Heatmap(
-                    x=colunas_bins,
-                    y=linhas_bins,
-                    z=heatmap_data,
-                    colorscale='Hot',
-                    opacity=0.7,
-                    colorbar=dict(title="Tempo gasto<br>(nº registros)"),
-                    name="Mapa de calor de tempo"
-                ))
-                
-                fig_tatico.add_trace(go.Scatter(
-                    x=df_tatico['Longitude'],
-                    y=df_tatico['Latitude'],
-                    mode='markers',
-                    marker=dict(size=3, color='white', opacity=0.5),
-                    name='Trajetória',
-                    hoverinfo='skip'
-                ))
+                        zona = f'L{i+1}-C{j+1}'
+                        if zona in zona_metrics.index:
+                            heatmap[i, j] = zona_metrics.loc[zona, 'Contagem']
+                fig_tat.add_trace(go.Heatmap(x=colunas_bins, y=linhas_bins, z=heatmap.T,
+                                             colorscale='Hot', opacity=0.7, colorbar=dict(title="Tempo")))
+                fig_tat.add_trace(go.Scatter(x=df_tat['Longitude'], y=df_tat['Latitude'],
+                                             mode='markers', marker=dict(size=3, color='white', opacity=0.5), name='Trajetória'))
             
-            elif viz_type == "Mapa de calor de velocidade":
-                heatmap_data_vel = np.zeros((num_linhas, num_colunas))
+            else:
+                heatmap = np.zeros((num_linhas, num_colunas))
                 for i in range(num_linhas):
                     for j in range(num_colunas):
-                        zona_label = f'L{i+1}-C{j+1}'
-                        vel_mean = zona_metrics.loc[zona_label, 'Vel_Média'] if zona_label in zona_metrics.index else 0
-                        heatmap_data_vel[i, j] = vel_mean
-                
-                fig_tatico.add_trace(go.Heatmap(
-                    x=colunas_bins,
-                    y=linhas_bins,
-                    z=heatmap_data_vel,
-                    colorscale='Viridis',
-                    opacity=0.7,
-                    colorbar=dict(title="Velocidade média<br>(km/h)"),
-                    name="Mapa de calor de velocidade"
-                ))
-                
-                fig_tatico.add_trace(go.Scatter(
-                    x=df_tatico['Longitude'],
-                    y=df_tatico['Latitude'],
-                    mode='markers',
-                    marker=dict(size=3, color='white', opacity=0.5),
-                    name='Trajetória',
-                    hoverinfo='skip'
-                ))
+                        zona = f'L{i+1}-C{j+1}'
+                        if zona in zona_metrics.index:
+                            heatmap[i, j] = zona_metrics.loc[zona, 'Vel_Média']
+                fig_tat.add_trace(go.Heatmap(x=colunas_bins, y=linhas_bins, z=heatmap.T,
+                                             colorscale='Viridis', opacity=0.7, colorbar=dict(title="Velocidade Média")))
+                fig_tat.add_trace(go.Scatter(x=df_tat['Longitude'], y=df_tat['Latitude'],
+                                             mode='markers', marker=dict(size=3, color='white', opacity=0.5), name='Trajetória'))
             
-            fig_tatico.update_layout(
-                title=f"Análise Tática - {atleta_tatico_nome}",
-                xaxis_title="Longitude",
-                yaxis_title="Latitude",
-                height=700,
-                hovermode='closest',
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1
-                )
-            )
+            fig_tat.update_layout(title=f"Análise Tática - {atleta_tat}", xaxis_title="Longitude", yaxis_title="Latitude", height=700)
+            st.plotly_chart(fig_tat, use_container_width=True)
             
-            fig_tatico.update_yaxes(
-                scaleanchor="x",
-                scaleratio=1
-            )
-            
-            st.plotly_chart(fig_tatico, use_container_width=True)
-            
-            st.markdown("#### 📈 Comparação de Intensidade entre Zonas")
-            
+            # Top zonas
             top_zonas = zona_metrics.nlargest(8, 'Intensidade').reset_index()
-            
             if len(top_zonas) > 0:
-                fig_radar = go.Figure()
-                
-                fig_radar.add_trace(go.Bar(
-                    x=top_zonas['Zona'],
-                    y=top_zonas['Intensidade'],
-                    marker_color='rgba(255, 99, 71, 0.7)',
-                    name='Intensidade Relativa (%)',
-                    text=top_zonas['Intensidade'].round(1),
-                    textposition='auto'
-                ))
-                
-                fig_radar.update_layout(
-                    title="Top 8 Zonas com Maior Intensidade",
-                    xaxis_title="Zona",
-                    yaxis_title="Intensidade Relativa (%)",
-                    height=500,
-                    xaxis_tickangle=-45
-                )
-                
-                st.plotly_chart(fig_radar, use_container_width=True)
+                fig_bar = px.bar(top_zonas, x='Zona', y='Intensidade', title="Top 8 Zonas por Intensidade",
+                                 text=top_zonas['Intensidade'].round(1))
+                fig_bar.update_traces(textposition='outside')
+                st.plotly_chart(fig_bar, use_container_width=True)
             
-            csv_tatico = zona_metrics.reset_index().to_csv(index=False)
-            st.download_button(
-                label="📥 Exportar análise tática (CSV)",
-                data=csv_tatico,
-                file_name=f"analise_tatica_{atleta_tatico_nome}.csv",
-                mime="text/csv"
-            )
+            # Exportar
+            csv_tat = zona_metrics.reset_index().to_csv(index=False)
+            st.download_button("📥 Exportar análise tática", csv_tat, f"analise_tatica_{atleta_tat}.csv")
         
-        # Botão de download
+        # Download dados filtrados
         st.markdown("---")
-        csv_data = df_combined.to_csv(index=False)
-        st.download_button(
-            label="📥 Exportar dados filtrados (CSV)",
-            data=csv_data,
-            file_name=f"dados_filtrados_{len(selected_atletas)}_atletas.csv",
-            mime="text/csv"
-        )
-        
-        st.markdown("---")
-        st.markdown(f"**📊 Resumo da análise:** {len(df_combined)} registros | **Atletas:** {', '.join(selected_atletas)}")
-        st.markdown(f"**⏱️ Período:** {start_horario} → {end_horario}")
-        st.markdown(f"**⚡ Filtro de velocidade:** {speed_range[0]:.1f} - {speed_range[1]:.1f} km/h")
-        st.markdown(f"**🏟️ Estádio:** {nome_estadio}")
+        st.download_button("📥 Exportar dados filtrados", df_combined.to_csv(index=False), "dados_filtrados.csv")
+        st.markdown(f"**Resumo:** {len(df_combined)} registros | **Atletas:** {', '.join(selected_atletas)}")
     
     else:
-        st.error("❌ Nenhum arquivo válido foi processado. Verifique o formato dos arquivos.")
+        st.error("❌ Nenhum arquivo válido processado.")
 
 else:
-    # Tela inicial
     st.markdown("""
     ### 👋 Bem-vindo ao Analisador de Percurso do Atleta!
     
-    Esta ferramenta permite visualizar e analisar os dados de posicionamento e desempenho de atletas.
-    
     ### 🚀 Como usar:
-    1. **Faça upload** de um ou mais arquivos CSV na barra lateral esquerda
-    2. Aguarde o processamento automático
-    3. **Selecione o estádio** ou deixe o app detectar automaticamente
-    4. Selecione **um ou mais atletas** no menu
-    5. **Arraste os marcadores** na barra de rolagem para selecionar o intervalo de horário desejado
-    6. Explore as visualizações nas abas
+    1. **Faça upload** de arquivos CSV na barra lateral
+    2. **Selecione o estádio** ou use detecção automática
+    3. **Escolha os atletas** para análise
+    4. **Ajuste os filtros** de tempo e velocidade
+    5. **Explore as 7 abas** de análise
     
-    ### ✨ Novas funcionalidades:
-    - **🏟️ Banco de dados de estádios**: Selecione o estádio ou cadastre novos
-    - **🔍 Detecção automática**: O app pode identificar os limites do campo baseado nos dados
-    - **📝 Cadastro de estádios**: Contribua com novos estádios para a comunidade
-    - **🎯 Calibração precisa**: Use coordenadas reais dos estádios para maior precisão
-    - **Múltiplos arquivos**: Carregue dados de vários atletas simultaneamente
-    - **Seleção múltipla de atletas**: Analise um ou mais atletas ao mesmo tempo
-    - **Barra de rolagem com horários**: Arraste os marcadores para selecionar o intervalo exato
-    - **Campo de futebol**: Visualização com dimensões oficiais do campo
-    - **Análise Tática por Zonas**: Integração de dados físicos e táticos
+    ### ✨ Funcionalidades:
+    - 🏟️ **Cadastro de estádios** por pontos de referência (4 cantos)
+    - 🗺️ **Mapa interativo** com trajetória
+    - 📈 **Gráficos sobrepostos** (Velocidade + FC)
+    - ⚡ **Distribuição de velocidades** e boxplot por percentil
+    - ❤️ **Zonas de frequência cardíaca**
+    - 🔄 **Quadrantes de aceleração vs velocidade**
+    - 📊 **Entropia amostral** (global e rolling)
+    - 📐 **Análise tática** com divisão do campo em zonas
     
     ---
-    **👈 Clique em "Browse files" na barra lateral para começar!**
+    **👈 Faça upload para começar!**
     """)
-    
-    st.info("ℹ️ Aguardando upload do arquivo...")
-    
-    with st.expander("🎯 Funcionalidades do Aplicativo"):
-        st.markdown("""
-        **Abas disponíveis:**
-        
-        1. **🗺️ Mapa do Percurso** - Com campo de futebol e marcadores temporais
-        2. **📈 Gráficos de Desempenho** - Análise de velocidade, FC e sobreposição temporal
-        3. **⚡ Velocidade e Aceleração** - Distribuição e evolução temporal
-        4. **❤️ Frequência Cardíaca** - Análise de zonas de intensidade
-        5. **🔄 Aceleração vs Velocidade** - Relação com quadrantes
-        6. **📊 Entropia Amostral** - Análise da regularidade dos movimentos
-        7. **📐 Análise Tática por Zonas** - Integração de dados físicos e táticos com divisão do campo
-        
-        **Sistema de Estádios:**
-        - **Detecção automática**: O app calcula os limites do campo baseado nos dados
-        - **Estádios pré-cadastrados**: Maracanã, Morumbi, Allianz Parque, etc.
-        - **Cadastro de novos**: Adicione novos estádios com suas coordenadas
-        - **Persistência**: Os dados são salvos em um banco SQLite local
-        """)
