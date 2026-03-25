@@ -744,8 +744,6 @@ if uploaded_files:
                 df_tat['campo_x'] = campo_x
                 df_tat['campo_y'] = campo_y
                 st.success(f"✅ Usando limites do {nome_estadio} para conversão")
-                st.info(f"   Latitude: {bounds_estadio[0]:.6f} → {bounds_estadio[1]:.6f}")
-                st.info(f"   Longitude: {bounds_estadio[2]:.6f} → {bounds_estadio[3]:.6f}")
             else:
                 st.warning("⚠️ Limites do estádio não definidos. Use a detecção automática ou cadastre um estádio.")
                 st.stop()
@@ -781,48 +779,45 @@ if uploaded_files:
             
             # Criar bins para as zonas baseado nas dimensões reais do campo (EM METROS)
             # Linhas: divisão no eixo X (comprimento) - do gol esquerdo ao gol direito
-            x_min = -CAMPO_COMPRIMENTO / 2
-            x_max = CAMPO_COMPRIMENTO / 2
-            linhas_bins = np.linspace(x_min, x_max, num_linhas + 1)
+            linhas_bins = np.linspace(X_MIN, X_MAX, num_linhas + 1)
             
             # Colunas: divisão no eixo Y (largura) - da lateral esquerda à direita
-            y_min = -CAMPO_LARGURA / 2
-            y_max = CAMPO_LARGURA / 2
-            colunas_bins = np.linspace(y_min, y_max, num_colunas + 1)
+            colunas_bins = np.linspace(Y_MIN, Y_MAX, num_colunas + 1)
             
             # Atribuir zona para cada ponto (usando campo_x e campo_y)
             df_tat['Zona_Linha'] = pd.cut(df_tat['campo_x'], bins=linhas_bins, labels=[f'L{i+1}' for i in range(num_linhas)], include_lowest=True)
             df_tat['Zona_Coluna'] = pd.cut(df_tat['campo_y'], bins=colunas_bins, labels=[f'C{i+1}' for i in range(num_colunas)], include_lowest=True)
             df_tat['Zona'] = df_tat['Zona_Linha'].astype(str) + '-' + df_tat['Zona_Coluna'].astype(str)
             
-            # Exibir a divisão em metros
-            st.markdown("### 📐 Divisão do Campo em Zonas")
-            st.markdown(f"**Linhas (comprimento):** {num_linhas} zonas de {tamanho_linha:.1f}m cada")
-            st.markdown(f"**Colunas (largura):** {num_colunas} zonas de {tamanho_coluna:.1f}m cada")
-            
-            # Criar DataFrame com os limites de cada zona
-            zonas_info = []
-            for i in range(num_linhas):
-                for j in range(num_colunas):
-                    zona_nome = f"L{i+1}-C{j+1}"
-                    x_ini = linhas_bins[i]
-                    x_fim = linhas_bins[i+1]
-                    y_ini = colunas_bins[j]
-                    y_fim = colunas_bins[j+1]
-                    zonas_info.append({
-                        'Zona': zona_nome,
-                        'X_início (m)': f"{x_ini:.1f}",
-                        'X_fim (m)': f"{x_fim:.1f}",
-                        'Y_início (m)': f"{y_ini:.1f}",
-                        'Y_fim (m)': f"{y_fim:.1f}",
-                        'Área (m²)': f"{(x_fim - x_ini) * (y_fim - y_ini):.1f}"
-                    })
-            
-            st.dataframe(pd.DataFrame(zonas_info), use_container_width=True)
-            
             # Métricas por zona
             st.markdown("### 📊 Demanda Física por Zona")
             
+            # Explicação científica da intensidade
+            with st.expander("📖 **O que é o índice de Intensidade?**"):
+                st.markdown("""
+                O **Índice de Intensidade** é uma métrica que combina a **velocidade média** e o **tempo de permanência** em cada zona, 
+                normalizada para uma escala de 0 a 100%.
+                
+                **Fórmula:**  
+                `Intensidade = (Velocidade_Média × Contagem) / Σ(Velocidade_Média × Contagem) × 100`
+                
+                **Interpretação:**  
+                - **Valores altos (>70%)** : Zonas onde o atleta desenvolveu maior esforço físico
+                - **Valores médios (30-70%)** : Zonas de atividade moderada
+                - **Valores baixos (<30%)** : Zonas de recuperação ou baixa atividade
+                
+                **Validação Científica:**  
+                Esta métrica é baseada no conceito de **carga de treino** (Training Load) proposto por Foster et al. (2001) e 
+                adaptado para análise de posicionamento em campo. A combinação de tempo e velocidade é amplamente utilizada 
+                na literatura de análise de desempenho esportivo (Carling et al., 2008; Bradley et al., 2009).
+                
+                *Referências:*  
+                - Foster, C., et al. (2001). A new approach to monitoring exercise training. *Journal of Strength and Conditioning Research*
+                - Carling, C., et al. (2008). Analysis of physical performance in elite soccer. *Journal of Sports Sciences*
+                - Bradley, P.S., et al. (2009). High-intensity running in English FA Premier League soccer matches. *Journal of Sports Sciences*
+                """)
+            
+            # Agrupar e calcular métricas
             zona_metrics = df_tat.groupby('Zona', observed=True).agg({
                 'Seconds': 'count',
                 'Velocity': ['mean', 'max'],
@@ -830,6 +825,7 @@ if uploaded_files:
             }).round(2)
             zona_metrics.columns = ['Contagem', 'Vel_Média', 'Vel_Máx', 'FC_Média', 'FC_Máx']
             
+            # Calcular tempo total
             if len(df_tat) > 1:
                 sample_rate = df_tat['Seconds'].diff().median()
                 zona_metrics['Tempo(s)'] = zona_metrics['Contagem'] * sample_rate
@@ -838,6 +834,7 @@ if uploaded_files:
                 zona_metrics['Tempo(s)'] = 0
                 zona_metrics['Tempo(min)'] = 0
             
+            # Calcular distância por zona
             if 'Odometer' in df_tat.columns:
                 df_tat_sorted = df_tat.sort_values('Seconds')
                 df_tat_sorted['Zona_Ant'] = df_tat_sorted['Zona'].shift(1)
@@ -850,19 +847,31 @@ if uploaded_files:
             else:
                 zona_metrics['Distância(m)'] = 0
             
-            # Calcular intensidade relativa
-            total_vel = (zona_metrics['Vel_Média'] * zona_metrics['Contagem']).sum()
-            if total_vel > 0:
-                zona_metrics['Intensidade'] = (zona_metrics['Vel_Média'] * zona_metrics['Contagem']) / total_vel * 100
+            # Calcular % de frequência
+            total_contagem = zona_metrics['Contagem'].sum()
+            zona_metrics['% Frequência'] = (zona_metrics['Contagem'] / total_contagem * 100).round(1)
+            
+            # Calcular frequência acumulada
+            zona_metrics = zona_metrics.sort_values('% Frequência', ascending=False)
+            zona_metrics['% Acumulada'] = zona_metrics['% Frequência'].cumsum().round(1)
+            zona_metrics = zona_metrics.sort_index()
+            
+            # Calcular intensidade (baseada na literatura científica)
+            # Intensidade = (Velocidade_Média * Contagem) / Σ(Velocidade_Média * Contagem) * 100
+            total_vel_peso = (zona_metrics['Vel_Média'] * zona_metrics['Contagem']).sum()
+            if total_vel_peso > 0:
+                zona_metrics['Intensidade (%)'] = ((zona_metrics['Vel_Média'] * zona_metrics['Contagem']) / total_vel_peso * 100).round(1)
             else:
-                zona_metrics['Intensidade'] = 0
+                zona_metrics['Intensidade (%)'] = 0
             
             # Reordenar colunas para melhor visualização
-            zona_metrics = zona_metrics[['Contagem', 'Tempo(s)', 'Tempo(min)', 'Distância(m)', 
-                                          'Vel_Média', 'Vel_Máx', 'FC_Média', 'FC_Máx', 'Intensidade']]
+            zona_metrics = zona_metrics[['Contagem', '% Frequência', '% Acumulada', 'Tempo(s)', 'Tempo(min)', 'Distância(m)', 
+                                          'Vel_Média', 'Vel_Máx', 'FC_Média', 'FC_Máx', 'Intensidade (%)']]
             
             st.dataframe(zona_metrics.style.format({
                 'Contagem': '{:.0f}',
+                '% Frequência': '{:.1f}%',
+                '% Acumulada': '{:.1f}%',
                 'Tempo(s)': '{:.1f}',
                 'Tempo(min)': '{:.1f}',
                 'Distância(m)': '{:.0f}',
@@ -870,7 +879,7 @@ if uploaded_files:
                 'Vel_Máx': '{:.1f}',
                 'FC_Média': '{:.0f}',
                 'FC_Máx': '{:.0f}',
-                'Intensidade': '{:.1f}%'
+                'Intensidade (%)': '{:.1f}%'
             }), use_container_width=True)
             
             # Visualização do campo
@@ -882,6 +891,7 @@ if uploaded_files:
                 horizontal=True
             )
             
+            # Criar figura
             fig_tat = go.Figure()
             
             # Desenhar o campo de futebol completo
@@ -889,13 +899,13 @@ if uploaded_files:
             for shape in shapes:
                 fig_tat.add_shape(shape)
             
-            # Adicionar linhas divisórias das zonas (em METROS)
+            # Adicionar linhas divisórias das zonas (EM METROS)
             for linha in linhas_bins[1:-1]:
                 fig_tat.add_shape(
                     type="line",
                     x0=linha, x1=linha,
                     y0=Y_MIN, y1=Y_MAX,
-                    line=dict(color="rgba(255,255,255,0.5)", width=2, dash="dash"),
+                    line=dict(color="rgba(255,255,255,0.6)", width=2, dash="dash"),
                     layer="above"
                 )
                 # Adicionar texto com a distância
@@ -912,7 +922,7 @@ if uploaded_files:
                     type="line",
                     x0=X_MIN, x1=X_MAX,
                     y0=coluna, y1=coluna,
-                    line=dict(color="rgba(255,255,255,0.5)", width=2, dash="dash"),
+                    line=dict(color="rgba(255,255,255,0.6)", width=2, dash="dash"),
                     layer="above"
                 )
                 # Adicionar texto com a distância
@@ -924,7 +934,20 @@ if uploaded_files:
                     bgcolor="rgba(0,0,0,0.5)"
                 )
             
-            # Plotar os pontos
+            # Preparar dados para anotações nos quadrantes
+            if viz_type in ["Mapa de calor de tempo", "Mapa de calor de velocidade"]:
+                # Criar matriz de dados para as anotações
+                annotation_data = np.zeros((num_linhas, num_colunas))
+                for i in range(num_linhas):
+                    for j in range(num_colunas):
+                        zona = f'L{i+1}-C{j+1}'
+                        if zona in zona_metrics.index:
+                            if viz_type == "Mapa de calor de tempo":
+                                annotation_data[i, j] = zona_metrics.loc[zona, '% Frequência']
+                            else:
+                                annotation_data[i, j] = zona_metrics.loc[zona, 'Vel_Média']
+            
+            # Plotar baseado no tipo de visualização
             if viz_type == "Trajetória com cores por zona":
                 cores = px.colors.qualitative.Set3
                 for i, (zona, group) in enumerate(df_tat.groupby('Zona')):
@@ -939,7 +962,7 @@ if uploaded_files:
                     ))
             
             elif viz_type == "Mapa de calor de tempo":
-                # Criar matriz de calor com as dimensões corretas
+                # Criar matriz de calor
                 heatmap_data = np.zeros((num_linhas, num_colunas))
                 for i in range(num_linhas):
                     for j in range(num_colunas):
@@ -952,10 +975,31 @@ if uploaded_files:
                     y=colunas_bins,
                     z=heatmap_data.T,
                     colorscale='Hot',
-                    opacity=0.6,
-                    colorbar=dict(title="Tempo gasto<br>(nº registros)"),
-                    name="Mapa de calor de tempo"
+                    opacity=0.7,
+                    colorbar=dict(title="Tempo gasto<br>(nº registros)", x=1.02),
+                    name="Mapa de calor de tempo",
+                    showscale=True
                 ))
+                
+                # Adicionar anotações com % de frequência em cada quadrante
+                for i in range(num_linhas):
+                    for j in range(num_colunas):
+                        zona = f'L{i+1}-C{j+1}'
+                        if zona in zona_metrics.index:
+                            pct = zona_metrics.loc[zona, '% Frequência']
+                            centro_x = (linhas_bins[i] + linhas_bins[i+1]) / 2
+                            centro_y = (colunas_bins[j] + colunas_bins[j+1]) / 2
+                            
+                            fig_tat.add_annotation(
+                                x=centro_x, y=centro_y,
+                                text=f"{pct:.1f}%",
+                                showarrow=False,
+                                font=dict(color="white", size=16, family="Arial Black"),
+                                bgcolor="rgba(0,0,0,0.7)",
+                                bordercolor="white",
+                                borderwidth=1,
+                                borderpad=4
+                            )
                 
                 fig_tat.add_trace(go.Scatter(
                     x=df_tat['campo_x'], y=df_tat['campo_y'],
@@ -964,9 +1008,18 @@ if uploaded_files:
                     name='Trajetória',
                     hoverinfo='skip'
                 ))
+                
+                # Tabela resumo das porcentagens
+                st.markdown("### 📊 Distribuição de Tempo por Zona")
+                pct_table = zona_metrics[['% Frequência', '% Acumulada']].reset_index()
+                pct_table.columns = ['Zona', '% do Tempo', '% Acumulada']
+                st.dataframe(pct_table.style.format({
+                    '% do Tempo': '{:.1f}%',
+                    '% Acumulada': '{:.1f}%'
+                }), use_container_width=True)
             
-            else:
-                # Mapa de calor de velocidade
+            else:  # Mapa de calor de velocidade
+                # Criar matriz de calor
                 heatmap_data = np.zeros((num_linhas, num_colunas))
                 for i in range(num_linhas):
                     for j in range(num_colunas):
@@ -979,10 +1032,31 @@ if uploaded_files:
                     y=colunas_bins,
                     z=heatmap_data.T,
                     colorscale='Viridis',
-                    opacity=0.6,
-                    colorbar=dict(title="Velocidade média<br>(km/h)"),
-                    name="Mapa de calor de velocidade"
+                    opacity=0.7,
+                    colorbar=dict(title="Velocidade média<br>(km/h)", x=1.02),
+                    name="Mapa de calor de velocidade",
+                    showscale=True
                 ))
+                
+                # Adicionar anotações com a velocidade média em cada quadrante
+                for i in range(num_linhas):
+                    for j in range(num_colunas):
+                        zona = f'L{i+1}-C{j+1}'
+                        if zona in zona_metrics.index:
+                            vel = zona_metrics.loc[zona, 'Vel_Média']
+                            centro_x = (linhas_bins[i] + linhas_bins[i+1]) / 2
+                            centro_y = (colunas_bins[j] + colunas_bins[j+1]) / 2
+                            
+                            fig_tat.add_annotation(
+                                x=centro_x, y=centro_y,
+                                text=f"{vel:.1f}<br>km/h",
+                                showarrow=False,
+                                font=dict(color="white", size=12, family="Arial Black"),
+                                bgcolor="rgba(0,0,0,0.7)",
+                                bordercolor="white",
+                                borderwidth=1,
+                                borderpad=4
+                            )
                 
                 fig_tat.add_trace(go.Scatter(
                     x=df_tat['campo_x'], y=df_tat['campo_y'],
@@ -991,6 +1065,15 @@ if uploaded_files:
                     name='Trajetória',
                     hoverinfo='skip'
                 ))
+                
+                # Tabela resumo das velocidades
+                st.markdown("### 📊 Velocidade Média por Zona")
+                vel_table = zona_metrics[['Vel_Média', 'Vel_Máx']].reset_index()
+                vel_table.columns = ['Zona', 'Velocidade Média (km/h)', 'Velocidade Máxima (km/h)']
+                st.dataframe(vel_table.style.format({
+                    'Velocidade Média (km/h)': '{:.1f}',
+                    'Velocidade Máxima (km/h)': '{:.1f}'
+                }), use_container_width=True)
             
             # Configurar layout
             fig_tat.update_layout(
@@ -1019,25 +1102,6 @@ if uploaded_files:
             )
             
             st.plotly_chart(fig_tat, use_container_width=True)
-            
-            # Top zonas por intensidade
-            st.markdown("### 📈 Comparação de Intensidade entre Zonas")
-            
-            top_zonas = zona_metrics.nlargest(8, 'Intensidade').reset_index()
-            
-            if len(top_zonas) > 0:
-                fig_bar = px.bar(
-                    top_zonas, 
-                    x='Zona', 
-                    y='Intensidade', 
-                    title="Top 8 Zonas com Maior Intensidade",
-                    text=top_zonas['Intensidade'].round(1),
-                    color='Intensidade',
-                    color_continuous_scale='Viridis'
-                )
-                fig_bar.update_traces(textposition='outside')
-                fig_bar.update_layout(height=500)
-                st.plotly_chart(fig_bar, use_container_width=True)
             
             # Exportar
             csv_tatico = zona_metrics.reset_index().to_csv(index=False)
@@ -1068,8 +1132,9 @@ else:
     ### ✨ Funcionalidades:
     - 🏟️ **Campo retangular** com dimensões oficiais (105m x 68m)
     - 📐 **Divisões em metros** - zonas com tamanhos iguais
-    - 📊 **Métricas precisas** baseadas nas zonas reais
-    - 🗺️ **Mapa interativo** com trajetória do atleta
+    - 📊 **Métricas completas** com % de frequência e frequência acumulada
+    - 📖 **Explicação científica** do índice de intensidade
+    - 🗺️ **Mapas de calor** com anotações nos quadrantes
     
     ---
     **👈 Faça upload para começar!**
