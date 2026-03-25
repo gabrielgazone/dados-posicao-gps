@@ -149,10 +149,14 @@ def validar_dimensoes_campo(lat_min, lat_max, lon_min, lon_max):
     return True, f"Dimensões válidas: {comprimento_m:.0f}m x {largura_m:.0f}m"
 
 def parse_coordenada_string(coord_str):
-    """Converte string de coordenada no formato do Google Maps para float"""
+    """Converte string de coordenada no formato do Google Maps para float
+    Aceita formatos:
+    -3.8067363941105574, -38.5226464606229
+    -3.8067363941105574,-38.5226464606229
+    """
     try:
-        # Remove aspas, espaços e parênteses
-        coord_str = coord_str.strip().strip('"').strip("'").strip('()')
+        # Remove espaços extras
+        coord_str = coord_str.strip()
         # Separa por vírgula
         partes = coord_str.split(',')
         if len(partes) >= 2:
@@ -172,20 +176,24 @@ def seconds_to_time_str(seconds, start_datetime):
     return target_time.strftime("%H:%M:%S")
 
 def extract_athlete_from_line8(content):
-    """Extrai o nome do atleta da linha 8 do arquivo - texto entre aspas após # Athlete:"""
+    """Extrai o nome do atleta da linha 8 do arquivo
+    Exemplo: # Athlete: "L.SASHA";;;;;;;;;;;
+    Retorna: L.SASHA
+    """
     try:
         lines = content.split('\n')
         if len(lines) >= 8:
             line8 = lines[7]  # linha 8 (índice 7)
-            # Procura pelo padrão # Athlete: "NOME"
+            # Procura pelo padrão # Athlete:
             if '# Athlete:' in line8:
                 # Procura por texto entre aspas
                 match = re.search(r'"([^"]*)"', line8)
                 if match:
                     return match.group(1).strip()
-                # Se não encontrar aspas, tenta extrair após os dois pontos até o ponto e vírgula
+                # Se não encontrar aspas, tenta extrair após os dois pontos
                 parts = line8.split(':')
                 if len(parts) > 1:
+                    # Pega a parte após os dois pontos e antes do primeiro ponto e vírgula
                     nome = parts[1].split(';')[0].strip().strip('"')
                     if nome:
                         return nome
@@ -198,10 +206,12 @@ def load_data(uploaded_file):
     try:
         content = uploaded_file.getvalue().decode('utf-8')
         
+        # Extrair nome do atleta da linha 8
         atleta = extract_athlete_from_line8(content)
-        if atleta is None:
+        if atleta is None or atleta == "":
             atleta = "Não identificado"
         
+        # Extrair período
         periodo = "Não identificado"
         lines = content.split('\n')
         
@@ -217,14 +227,17 @@ def load_data(uploaded_file):
                     periodo = "Não identificado"
                 break
         
+        # Encontrar início dos dados
         data_start = 0
         for i, line in enumerate(lines):
             if not line.startswith('#') and 'Timestamp' in line:
                 data_start = i
                 break
         
+        # Ler dados
         df = pd.read_csv(StringIO(content), skiprows=data_start, sep=';')
         
+        # Renomear colunas
         col_names = ['Timestamp', 'Seconds', 'Velocity', 'Acceleration', 'Odometer', 
                      'Latitude', 'Longitude', 'HeartRate', 'PlayerLoad', 
                      'PositionalQuality', 'HDOP', 'Sats']
@@ -235,6 +248,7 @@ def load_data(uploaded_file):
             for i, col in enumerate(df.columns[:len(col_names)]):
                 df.rename(columns={col: col_names[i]}, inplace=True)
         
+        # Converter colunas numéricas
         numeric_cols = ['Seconds', 'Velocity', 'Acceleration', 'Odometer', 
                         'Latitude', 'Longitude', 'HeartRate', 'PlayerLoad', 
                         'PositionalQuality', 'HDOP', 'Sats']
@@ -243,6 +257,7 @@ def load_data(uploaded_file):
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '.'), errors='coerce')
         
+        # Processar timestamp
         start_datetime = None
         if 'Timestamp' in df.columns:
             df['Timestamp'] = df['Timestamp'].astype(str).str.strip()
@@ -256,6 +271,7 @@ def load_data(uploaded_file):
             
             start_datetime = df['Timestamp'].min() if not df['Timestamp'].isna().all() else None
         
+        # Remover linhas com dados essenciais faltando
         df = df.dropna(subset=['Latitude', 'Longitude', 'Velocity', 'HeartRate'])
         df['arquivo_origem'] = uploaded_file.name
         df['start_datetime'] = start_datetime
@@ -301,7 +317,7 @@ if len(df_estadios) > 0:
         if estadio_selecionado:
             st.sidebar.success(f"✅ {estadio_selecionado['nome']}")
     
-    # INTERFACE DE CADASTRO MELHORADA COM ENTRADA SIMPLIFICADA
+    # INTERFACE DE CADASTRO COM ENTRADA SIMPLIFICADA (SEM ASPAS)
     if selecao_estadio == "Cadastrar novo estádio":
         with st.sidebar.expander("📝 Cadastrar novo estádio", expanded=True):
             st.markdown("### Dados básicos")
@@ -320,7 +336,7 @@ if len(df_estadios) > 0:
             2. Localize o estádio e dê zoom máximo no campo
             3. Clique com botão direito nos cantos e selecione "O que há aqui?"
             4. Copie a coordenada que aparece (ex: `-3.8067363941105574, -38.5226464606229`)
-            5. Cole nos campos abaixo - o sistema vai extrair latitude e longitude automaticamente
+            5. **Cole o texto exatamente como está** (sem aspas)
             """)
             
             # Layout dos 4 cantos com entrada simplificada
@@ -330,28 +346,40 @@ if len(df_estadios) > 0:
                 st.markdown("**🏁 Lateral Esquerda**")
                 
                 with st.expander("📍 Canto Superior Esquerdo (NO)", expanded=True):
-                    coord_no = st.text_input("Coordenada (cole do Google Maps)", 
-                                            value="-3.8067363941105574, -38.5226464606229",
-                                            key="coord_no",
-                                            help="Exemplo: -3.8067363941105574, -38.5226464606229")
+                    coord_no = st.text_area(
+                        "Coordenada (cole do Google Maps)", 
+                        value="-3.8067363941105574, -38.5226464606229",
+                        key="coord_no",
+                        height=68,
+                        help="Cole exatamente como copiou do Google Maps, exemplo: -3.8067363941105574, -38.5226464606229"
+                    )
                 
                 with st.expander("📍 Canto Inferior Esquerdo (SO)", expanded=True):
-                    coord_so = st.text_input("Coordenada (cole do Google Maps)", 
-                                            value="-3.8076924786839124, -38.52277184997347",
-                                            key="coord_so")
+                    coord_so = st.text_area(
+                        "Coordenada (cole do Google Maps)", 
+                        value="-3.8076924786839124, -38.52277184997347",
+                        key="coord_so",
+                        height=68
+                    )
             
             with col_dir:
                 st.markdown("**🏁 Lateral Direita**")
                 
                 with st.expander("📍 Canto Superior Direito (NE)", expanded=True):
-                    coord_ne = st.text_input("Coordenada (cole do Google Maps)", 
-                                            value="-3.8067363941105574, -38.5226464606229",
-                                            key="coord_ne")
+                    coord_ne = st.text_area(
+                        "Coordenada (cole do Google Maps)", 
+                        value="-3.8067363941105574, -38.5216464606229",
+                        key="coord_ne",
+                        height=68
+                    )
                 
                 with st.expander("📍 Canto Inferior Direito (SE)", expanded=True):
-                    coord_se = st.text_input("Coordenada (cole do Google Maps)", 
-                                            value="-3.8076924786839124, -38.52277184997347",
-                                            key="coord_se")
+                    coord_se = st.text_area(
+                        "Coordenada (cole do Google Maps)", 
+                        value="-3.8076924786839124, -38.52177184997347",
+                        key="coord_se",
+                        height=68
+                    )
             
             # Processar coordenadas
             lat_no, lon_no = parse_coordenada_string(coord_no)
@@ -437,6 +465,7 @@ if uploaded_files:
             all_atletas.append(atleta)
             all_periodos.append(periodo)
             all_start_datetimes.append(start_datetime)
+            st.sidebar.write(f"📊 {file.name}: {atleta}")
         progress_bar.progress((idx + 1) / len(uploaded_files))
     
     if all_data:
@@ -575,7 +604,7 @@ if uploaded_files:
         with col5:
             st.metric("FC Máx", f"{df_main['HeartRate'].max():.0f} bpm")
         
-        # ==================== ABAS (SEM ENTROPIA) ====================
+        # ==================== ABAS ====================
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
             "🗺️ Mapa", "📈 Desempenho", "⚡ Velocidade", "❤️ FC", "🔄 Aceleração", "📐 Tática"
         ])
@@ -969,7 +998,7 @@ else:
     5. **Explore as 6 abas** de análise
     
     ### ✨ Funcionalidades:
-    - 🏟️ **Cadastro de estádios** por pontos de referência (cole coordenadas do Google Maps)
+    - 🏟️ **Cadastro de estádios** - Cole coordenadas do Google Maps (formato: `-3.806736, -38.522646`)
     - 🗺️ **Mapa interativo** com trajetória
     - 📈 **Gráficos sobrepostos** (Velocidade + FC)
     - ⚡ **Distribuição de velocidades** e boxplot por percentil
