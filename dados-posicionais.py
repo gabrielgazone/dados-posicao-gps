@@ -368,7 +368,6 @@ if st.sidebar.button("➕ Adicionar período", use_container_width=True):
     st.session_state.periodos.append({"nome": f"Período {len(st.session_state.periodos) + 1}", "inicio": 0, "fim": 45})
     st.rerun()
 
-# Função para obter horário formatado (prova real)
 def get_horario_formatado(minutos, start_dt):
     if start_dt:
         segundos = minutos * 60
@@ -394,7 +393,6 @@ for i, periodo in enumerate(st.session_state.periodos):
         
         st.session_state.periodos[i] = {"nome": novo_nome, "inicio": novo_inicio, "fim": novo_fim}
         
-        # Exibir horários correspondentes (prova real)
         if 'reference_datetime' in st.session_state and st.session_state.reference_datetime:
             inicio_horario = get_horario_formatado(novo_inicio, st.session_state.reference_datetime)
             fim_horario = get_horario_formatado(novo_fim, st.session_state.reference_datetime)
@@ -499,6 +497,7 @@ if uploaded_files:
         
         # Filtrar dados por período selecionado
         dfs_por_periodo = {}
+        df_combinado_total = pd.DataFrame()  # Para análise combinada
         
         for periodo_idx in periodos_selecionados:
             if periodo_idx == 0:  # Todos os períodos
@@ -514,7 +513,9 @@ if uploaded_files:
                     df_filtered['start_datetime'] = start_dt
                     dfs_periodo.append(df_filtered)
                 if dfs_periodo:
-                    dfs_por_periodo[periodo_nome] = pd.concat(dfs_periodo, ignore_index=True)
+                    df_temp = pd.concat(dfs_periodo, ignore_index=True)
+                    dfs_por_periodo[periodo_nome] = df_temp
+                    df_combinado_total = pd.concat([df_combinado_total, df_temp], ignore_index=True) if not df_combinado_total.empty else df_temp
             else:
                 periodo = st.session_state.periodos[periodo_idx - 1]
                 periodo_nome = periodo['nome']
@@ -533,11 +534,17 @@ if uploaded_files:
                     dfs_periodo.append(df_filtered)
                 
                 if dfs_periodo:
-                    dfs_por_periodo[periodo_nome] = pd.concat(dfs_periodo, ignore_index=True)
+                    df_temp = pd.concat(dfs_periodo, ignore_index=True)
+                    dfs_por_periodo[periodo_nome] = df_temp
+                    df_combinado_total = pd.concat([df_combinado_total, df_temp], ignore_index=True) if not df_combinado_total.empty else df_temp
         
         if not dfs_por_periodo:
             st.warning("⚠️ Nenhum dado encontrado nos períodos selecionados.")
             st.stop()
+        
+        # Adicionar análise combinada (soma dos períodos)
+        if len(dfs_por_periodo) > 1:
+            dfs_por_periodo["Todos períodos combinados"] = df_combinado_total
         
         # Métricas principais
         primeiro_periodo = list(dfs_por_periodo.keys())[0]
@@ -574,12 +581,14 @@ if uploaded_files:
             st.markdown("---")
         
         # ==================== ABAS ====================
-        tab1, tab2, tab3 = st.tabs(["🗺️ Mapa do Percurso", "📐 Análise Tática por Zonas", "📊 Comparação entre Períodos"])
+        tab1, tab2, tab3 = st.tabs(["🗺️ Mapa do Percurso", "📐 Análise Tática por Zonas", "📊 Comparação Esportiva"])
         
         # TAB 1: MAPA
         with tab1:
             st.subheader("Percurso no Campo de Futebol")
-            periodo_selecionado_mapa = st.selectbox("Selecionar período para visualizar", options=list(dfs_por_periodo.keys()), key="mapa_periodo_select")
+            
+            opcoes_mapa = list(dfs_por_periodo.keys())
+            periodo_selecionado_mapa = st.selectbox("Selecionar período para visualizar", options=opcoes_mapa, key="mapa_periodo_select")
             df_mapa = dfs_por_periodo[periodo_selecionado_mapa]
             
             if bounds_estadio:
@@ -615,7 +624,8 @@ if uploaded_files:
             st.subheader("Análise Tática - Posicionamento no Campo")
             st.markdown(f"Campo com dimensões oficiais: **{CAMPO_COMPRIMENTO}m x {CAMPO_LARGURA}m**")
             
-            periodo_selecionado_tatica = st.selectbox("Selecionar período para análise tática", options=list(dfs_por_periodo.keys()), key="tatica_periodo_select")
+            opcoes_tatica = list(dfs_por_periodo.keys())
+            periodo_selecionado_tatica = st.selectbox("Selecionar período para análise tática", options=opcoes_tatica, key="tatica_periodo_select")
             df_tat = dfs_por_periodo[periodo_selecionado_tatica]
             start_dt_tat = df_tat['start_datetime'].iloc[0] if len(df_tat) > 0 else None
             
@@ -682,7 +692,7 @@ if uploaded_files:
             for shape in desenhar_campo_futebol():
                 fig_tat.add_shape(shape)
             
-            shapes_div, _, _ = desenhar_linhas_divisorias(num_linhas, num_colunas)
+            shapes_div, linhas_bins_plot, colunas_bins_plot = desenhar_linhas_divisorias(num_linhas, num_colunas)
             for shape in shapes_div:
                 fig_tat.add_shape(shape)
             
@@ -700,14 +710,14 @@ if uploaded_files:
                         zona = f'L{i+1}-C{j+1}'
                         if zona in zona_metrics.index:
                             heatmap[i, j] = zona_metrics.loc[zona, 'Contagem']
-                fig_tat.add_trace(go.Heatmap(x=linhas_bins, y=colunas_bins, z=heatmap.T, colorscale='Hot', opacity=0.7,
+                fig_tat.add_trace(go.Heatmap(x=linhas_bins_plot, y=colunas_bins_plot, z=heatmap.T, colorscale='Hot', opacity=0.7,
                                              colorbar=dict(title="Tempo gasto")))
                 for i in range(num_linhas):
                     for j in range(num_colunas):
                         zona = f'L{i+1}-C{j+1}'
                         if zona in zona_metrics.index:
                             pct = zona_metrics.loc[zona, '% Frequência']
-                            centro_x, centro_y = (linhas_bins[i] + linhas_bins[i+1]) / 2, (colunas_bins[j] + colunas_bins[j+1]) / 2
+                            centro_x, centro_y = (linhas_bins_plot[i] + linhas_bins_plot[i+1]) / 2, (colunas_bins_plot[j] + colunas_bins_plot[j+1]) / 2
                             fig_tat.add_annotation(x=centro_x, y=centro_y, text=f"{pct:.1f}%", showarrow=False,
                                                    font=dict(color="white", size=14, family="Arial Black"),
                                                    bgcolor="rgba(0,0,0,0.7)", bordercolor="white", borderwidth=1, borderpad=4)
@@ -720,14 +730,14 @@ if uploaded_files:
                         zona = f'L{i+1}-C{j+1}'
                         if zona in zona_metrics.index:
                             heatmap[i, j] = zona_metrics.loc[zona, 'Vel_Média']
-                fig_tat.add_trace(go.Heatmap(x=linhas_bins, y=colunas_bins, z=heatmap.T, colorscale='Viridis', opacity=0.7,
+                fig_tat.add_trace(go.Heatmap(x=linhas_bins_plot, y=colunas_bins_plot, z=heatmap.T, colorscale='Viridis', opacity=0.7,
                                              colorbar=dict(title="Velocidade média")))
                 for i in range(num_linhas):
                     for j in range(num_colunas):
                         zona = f'L{i+1}-C{j+1}'
                         if zona in zona_metrics.index:
                             vel = zona_metrics.loc[zona, 'Vel_Média']
-                            centro_x, centro_y = (linhas_bins[i] + linhas_bins[i+1]) / 2, (colunas_bins[j] + colunas_bins[j+1]) / 2
+                            centro_x, centro_y = (linhas_bins_plot[i] + linhas_bins_plot[i+1]) / 2, (colunas_bins_plot[j] + colunas_bins_plot[j+1]) / 2
                             fig_tat.add_annotation(x=centro_x, y=centro_y, text=f"{vel:.1f}<br>km/h", showarrow=False,
                                                    font=dict(color="white", size=12, family="Arial Black"),
                                                    bgcolor="rgba(0,0,0,0.7)", bordercolor="white", borderwidth=1, borderpad=4)
@@ -758,162 +768,224 @@ if uploaded_files:
             csv_tatico = zona_metrics.reset_index().to_csv(index=False)
             st.download_button("📥 Exportar análise tática", csv_tatico, f"analise_tatica_{selected_atletas[0]}_{periodo_selecionado_tatica}.csv")
         
-        # TAB 3: COMPARAÇÃO ENTRE PERÍODOS
+        # TAB 3: COMPARAÇÃO ESPORTIVA (MELHORADA)
         with tab3:
-            st.subheader("Comparação entre Períodos - Análise Percentual")
-            st.markdown("Esta aba permite comparar as diferenças percentuais entre os períodos selecionados.")
+            st.subheader("Comparação Esportiva entre Períodos")
+            st.markdown("Análise detalhada das diferenças de desempenho entre os períodos selecionados.")
             
-            # Selecionar variável para comparação
-            var_comparacao = st.selectbox(
-                "Selecione a variável para comparação",
-                options=["Velocidade Média", "Velocidade Máxima", "Frequência Cardíaca Média", "Frequência Cardíaca Máxima", "Distância Total"],
+            # Selecionar variáveis para comparação
+            st.markdown("### 🎯 Variáveis de Análise")
+            
+            var_selecionadas = st.multiselect(
+                "Selecione as variáveis para análise comparativa",
+                options=["Velocidade Média (km/h)", "Velocidade Máxima (km/h)", 
+                         "Frequência Cardíaca Média (bpm)", "Frequência Cardíaca Máxima (bpm)", 
+                         "Distância Total (m)", "Tempo Total (min)", "Intensidade Média"],
+                default=["Velocidade Média (km/h)", "Frequência Cardíaca Média (bpm)", "Distância Total (m)"],
                 key="var_comparacao"
             )
             
-            # Mapear variáveis
-            var_map = {
-                "Velocidade Média": ("Velocity", "mean"),
-                "Velocidade Máxima": ("Velocity", "max"),
-                "Frequência Cardíaca Média": ("HeartRate", "mean"),
-                "Frequência Cardíaca Máxima": ("HeartRate", "max"),
-                "Distância Total": ("Odometer", "total")
-            }
-            
-            coluna, agregacao = var_map[var_comparacao]
-            
-            # Calcular métricas por período
-            comparacao_data = []
-            for periodo_nome, df_periodo in dfs_por_periodo.items():
-                if coluna == "Odometer" and agregacao == "total":
-                    if coluna in df_periodo.columns:
-                        valor = df_periodo[coluna].max() - df_periodo[coluna].min()
-                    else:
-                        valor = 0
-                else:
-                    if coluna in df_periodo.columns:
-                        if agregacao == "mean":
-                            valor = df_periodo[coluna].mean()
-                        else:
-                            valor = df_periodo[coluna].max()
-                    else:
-                        valor = 0
-                
-                comparacao_data.append({"Período": periodo_nome, "Valor": valor})
-            
-            df_comparacao = pd.DataFrame(comparacao_data)
-            
-            # Calcular percentuais em relação ao primeiro período
-            if len(df_comparacao) > 0:
-                valor_base = df_comparacao.iloc[0]['Valor']
-                if valor_base > 0:
-                    df_comparacao['Diferença (%)'] = ((df_comparacao['Valor'] - valor_base) / valor_base * 100).round(1)
-                    df_comparacao['Variação'] = df_comparacao['Diferença (%)'].apply(
-                        lambda x: f"▲ {x:.1f}%" if x > 0 else (f"▼ {abs(x):.1f}%" if x < 0 else "0%")
-                    )
-                else:
-                    df_comparacao['Diferença (%)'] = 0
-                    df_comparacao['Variação'] = "0%"
-                
-                # Formatar valores
-                if "Distância" in var_comparacao:
-                    df_comparacao['Valor'] = df_comparacao['Valor'].apply(lambda x: f"{x:.0f} m")
-                else:
-                    df_comparacao['Valor'] = df_comparacao['Valor'].apply(lambda x: f"{x:.1f}")
-                
-                # Exibir tabela comparativa
-                st.markdown("### 📊 Tabela Comparativa")
-                st.dataframe(df_comparacao[['Período', 'Valor', 'Diferença (%)', 'Variação']], use_container_width=True)
-                
-                # Gráfico de barras comparativo
-                st.markdown("### 📈 Gráfico Comparativo")
-                fig_comp = go.Figure()
-                
-                for _, row in df_comparacao.iterrows():
-                    valor_num = float(row['Valor'].replace(' m', '').replace(',', '.')) if isinstance(row['Valor'], str) else row['Valor']
-                    if isinstance(valor_num, str):
-                        try:
-                            valor_num = float(valor_num.split()[0])
-                        except:
-                            valor_num = 0
+            if not var_selecionadas:
+                st.warning("Selecione pelo menos uma variável para análise.")
+            else:
+                # Calcular métricas por período
+                comparacao_data = []
+                for periodo_nome, df_periodo in dfs_por_periodo.items():
+                    row = {"Período": periodo_nome}
                     
-                    cor = '#2ecc71' if row['Diferença (%)'] >= 0 else '#e74c3c'
-                    fig_comp.add_trace(go.Bar(
-                        x=[row['Período']],
-                        y=[valor_num],
-                        name=row['Período'],
-                        marker_color=cor,
-                        text=[f"{valor_num:.1f}" if isinstance(valor_num, (int, float)) else str(valor_num)],
-                        textposition='outside'
-                    ))
+                    for var in var_selecionadas:
+                        if var == "Velocidade Média (km/h)":
+                            row[var] = df_periodo['Velocity'].mean()
+                        elif var == "Velocidade Máxima (km/h)":
+                            row[var] = df_periodo['Velocity'].max()
+                        elif var == "Frequência Cardíaca Média (bpm)":
+                            row[var] = df_periodo['HeartRate'].mean()
+                        elif var == "Frequência Cardíaca Máxima (bpm)":
+                            row[var] = df_periodo['HeartRate'].max()
+                        elif var == "Distância Total (m)":
+                            if 'Odometer' in df_periodo.columns:
+                                row[var] = df_periodo['Odometer'].max() - df_periodo['Odometer'].min()
+                            else:
+                                row[var] = 0
+                        elif var == "Tempo Total (min)":
+                            if len(df_periodo) > 1:
+                                sample_rate = df_periodo['Seconds'].diff().median()
+                                row[var] = (len(df_periodo) * sample_rate) / 60
+                            else:
+                                row[var] = 0
+                        elif var == "Intensidade Média":
+                            # Intensidade baseada na velocidade normalizada
+                            vel_max_total = max([df['Velocity'].max() for df in dfs_por_periodo.values()])
+                            if vel_max_total > 0:
+                                row[var] = (df_periodo['Velocity'].mean() / vel_max_total * 100)
+                            else:
+                                row[var] = 0
+                    
+                    comparacao_data.append(row)
                 
-                unidade = "m" if "Distância" in var_comparacao else "km/h" if "Velocidade" in var_comparacao else "bpm"
-                fig_comp.update_layout(
-                    title=f"Comparação de {var_comparacao} entre Períodos",
-                    xaxis_title="Período",
-                    yaxis_title=f"{var_comparacao} ({unidade})",
-                    height=500,
-                    showlegend=False
-                )
-                st.plotly_chart(fig_comp, use_container_width=True)
+                df_comparacao = pd.DataFrame(comparacao_data)
+                
+                # Tabela comparativa com destaque
+                st.markdown("### 📊 Tabela Comparativa de Desempenho")
+                
+                # Criar tabela estilizada
+                styled_df = df_comparacao.copy()
+                for col in var_selecionadas:
+                    if col in styled_df.columns:
+                        styled_df[col] = styled_df[col].round(1)
+                
+                st.dataframe(styled_df, use_container_width=True)
+                
+                # Gráfico de barras comparativo (melhorado)
+                st.markdown("### 📈 Comparação Visual")
+                
+                for var in var_selecionadas:
+                    st.markdown(f"#### {var}")
+                    
+                    # Criar figura com barras coloridas
+                    fig_comp = go.Figure()
+                    
+                    valores = df_comparacao[var].values
+                    periodos = df_comparacao['Período'].values
+                    
+                    # Definir cores baseadas no valor (maior = mais escuro)
+                    max_val = max(valores)
+                    cores = [px.colors.sequential.Blues[3] if v == max_val else px.colors.sequential.Blues[1] for v in valores]
+                    
+                    fig_comp.add_trace(go.Bar(
+                        x=periodos,
+                        y=valores,
+                        marker_color=cores,
+                        text=[f"{v:.1f}" for v in valores],
+                        textposition='outside',
+                        name=var
+                    ))
+                    
+                    # Adicionar linha de referência (média)
+                    media = np.mean(valores)
+                    fig_comp.add_hline(y=media, line_dash="dash", line_color="orange",
+                                      annotation_text=f"Média: {media:.1f}", annotation_position="top right")
+                    
+                    unidade = var.split('(')[-1].replace(')', '') if '(' in var else ''
+                    fig_comp.update_layout(
+                        title=f"{var} por Período",
+                        xaxis_title="Período",
+                        yaxis_title=unidade if unidade else var,
+                        height=400,
+                        showlegend=False
+                    )
+                    st.plotly_chart(fig_comp, use_container_width=True)
+                
+                # Mapa de calor de correlação
+                if len(var_selecionadas) >= 2:
+                    st.markdown("### 🔥 Matriz de Correlação entre Variáveis")
+                    
+                    # Preparar dados para correlação (apenas valores numéricos)
+                    corr_data = df_comparacao[var_selecionadas].copy()
+                    
+                    # Calcular correlação
+                    corr_matrix = corr_data.corr()
+                    
+                    # Criar heatmap
+                    fig_corr = go.Figure(data=go.Heatmap(
+                        z=corr_matrix.values,
+                        x=corr_matrix.columns,
+                        y=corr_matrix.columns,
+                        colorscale='RdBu',
+                        zmin=-1, zmax=1,
+                        text=corr_matrix.values.round(2),
+                        texttemplate='%{text}',
+                        textfont={"size": 12},
+                        hoverongaps=False
+                    ))
+                    
+                    fig_corr.update_layout(
+                        title="Correlação entre Variáveis de Desempenho",
+                        height=500,
+                        width=600
+                    )
+                    st.plotly_chart(fig_corr, use_container_width=True)
+                    
+                    st.markdown("""
+                    **Interpretação da Correlação:**
+                    - **Próximo de 1:** Forte correlação positiva (quando uma aumenta, a outra aumenta)
+                    - **Próximo de -1:** Forte correlação negativa (quando uma aumenta, a outra diminui)
+                    - **Próximo de 0:** Sem correlação significativa
+                    """)
                 
                 # Análise de variação percentual
                 st.markdown("### 📊 Análise de Variação Percentual")
+                
+                # Criar tabela de variação
+                variacao_data = []
                 for i, row in df_comparacao.iterrows():
                     if i == 0:
-                        st.info(f"**{row['Período']}** (referência): {row['Valor']}")
+                        variacao_data.append({"Período": row['Período'], "Status": "Referência"})
                     else:
-                        cor_emoji = "🟢" if row['Diferença (%)'] > 0 else ("🔴" if row['Diferença (%)'] < 0 else "⚪")
-                        st.write(f"{cor_emoji} **{row['Período']}**: {row['Valor']} ({row['Variação']} em relação ao período base)")
+                        ref = df_comparacao.iloc[0]
+                        var_dict = {"Período": row['Período']}
+                        for var in var_selecionadas:
+                            if var in row and var in ref:
+                                diff = row[var] - ref[var]
+                                pct = (diff / ref[var] * 100) if ref[var] != 0 else 0
+                                var_dict[var] = f"{'+' if diff > 0 else ''}{pct:.1f}%"
+                        variacao_data.append(var_dict)
                 
-                # Gráfico de radar para múltiplas variáveis
-                st.markdown("### 🎯 Perfil Comparativo (Radar)")
+                df_variacao = pd.DataFrame(variacao_data)
+                st.dataframe(df_variacao, use_container_width=True)
                 
-                var_radar = st.multiselect(
-                    "Selecione as variáveis para o gráfico radar",
-                    options=["Velocidade Média", "Velocidade Máxima", "Frequência Cardíaca Média", "Frequência Cardíaca Máxima", "Distância Total"],
-                    default=["Velocidade Média", "Frequência Cardíaca Média"],
-                    key="var_radar"
-                )
-                
-                if len(var_radar) >= 2 and len(dfs_por_periodo) >= 2:
-                    radar_data = []
-                    for periodo_nome, df_periodo in dfs_por_periodo.items():
-                        valores = []
-                        for var in var_radar:
-                            col, agg = var_map[var]
-                            if col == "Odometer" and agg == "total":
-                                if col in df_periodo.columns:
-                                    valor = df_periodo[col].max() - df_periodo[col].min()
-                                else:
-                                    valor = 0
-                            else:
-                                if col in df_periodo.columns:
-                                    valor = df_periodo[col].mean() if agg == "mean" else df_periodo[col].max()
-                                else:
-                                    valor = 0
-                            valores.append(valor)
-                        
-                        # Normalizar valores para radar (0-100%)
-                        radar_data.append({"periodo": periodo_nome, "valores": valores})
+                # Spider Chart (Radar) para perfil de desempenho
+                if len(df_comparacao) >= 2:
+                    st.markdown("### 🎯 Perfil de Desempenho (Radar)")
+                    st.markdown("Comparação normalizada do perfil de desempenho entre períodos.")
+                    
+                    # Normalizar dados para radar (0-100%)
+                    df_radar = df_comparacao.copy()
+                    for var in var_selecionadas:
+                        max_val = df_radar[var].max()
+                        if max_val > 0:
+                            df_radar[var + " (%)"] = (df_radar[var] / max_val * 100).round(1)
+                        else:
+                            df_radar[var + " (%)"] = 0
                     
                     # Criar figura radar
                     fig_radar = go.Figure()
-                    for data in radar_data:
+                    
+                    for _, row in df_radar.iterrows():
+                        valores = [row[var + " (%)"] for var in var_selecionadas]
                         fig_radar.add_trace(go.Scatterpolar(
-                            r=data['valores'],
-                            theta=var_radar,
+                            r=valores,
+                            theta=var_selecionadas,
                             fill='toself',
-                            name=data['periodo']
+                            name=row['Período'],
+                            line=dict(width=2)
                         ))
                     
                     fig_radar.update_layout(
-                        polar=dict(radialaxis=dict(visible=True, range=[0, max([max(d['valores']) for d in radar_data]) * 1.1])),
-                        title="Comparação Radar entre Períodos",
-                        height=500
+                        polar=dict(
+                            radialaxis=dict(visible=True, range=[0, 100], tickvals=[0, 25, 50, 75, 100]),
+                            angularaxis=dict(tickfont=dict(size=12))
+                        ),
+                        title="Perfil de Desempenho Normalizado (0-100%)",
+                        height=600,
+                        showlegend=True
                     )
                     st.plotly_chart(fig_radar, use_container_width=True)
-                else:
-                    st.info("Selecione pelo menos 2 variáveis e tenha 2 períodos para visualizar o gráfico radar.")
+                    
+                    st.markdown("""
+                    **Interpretação do Radar:**
+                    - Valores mais próximos de 100% indicam melhor desempenho naquela variável
+                    - Compara o perfil de cada período de forma normalizada
+                    - Quanto maior a área do polígono, melhor o desempenho geral
+                    """)
+                
+                # Exportar dados
+                csv_comparacao = df_comparacao.to_csv(index=False)
+                st.download_button(
+                    "📥 Exportar análise comparativa",
+                    csv_comparacao,
+                    f"comparacao_periodos_{selected_atletas[0]}.csv"
+                )
         
         st.markdown("---")
         st.download_button("📥 Exportar dados filtrados", pd.concat(dfs_por_periodo.values()).to_csv(index=False), "dados_filtrados.csv")
@@ -930,7 +1002,7 @@ else:
     1. **Faça upload** de arquivos CSV na barra lateral
     2. **Selecione o estádio** ou use detecção automática
     3. **Escolha os atletas** para análise
-    4. **Configure os períodos** de análise
+    4. **Configure os períodos** de análise (ex: 1º tempo, 2º tempo)
     5. **Ajuste os filtros** de tempo e velocidade
     6. **Explore as 3 abas** de análise
     
@@ -938,9 +1010,9 @@ else:
     - 🏟️ **Campo retangular** com dimensões oficiais (105m x 68m)
     - 📐 **Divisões iguais em metros** - zonas com tamanhos exatos
     - ⏱️ **Períodos personalizados** com horários correspondentes
-    - 📊 **Comparação entre períodos** com análise percentual
+    - 📊 **Análise combinada** - visualize a soma dos períodos selecionados
+    - 🎯 **Comparação esportiva** - radar, correlação e variação percentual
     - 🗺️ **Mapas de calor** com anotações nos quadrantes
-    - 📈 **Gráfico radar** para comparar múltiplas variáveis
     
     ---
     **👈 Faça upload para começar!**
