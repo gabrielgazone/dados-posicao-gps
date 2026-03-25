@@ -148,58 +148,20 @@ def validar_dimensoes_campo(lat_min, lat_max, lon_min, lon_max):
     
     return True, f"Dimensões válidas: {comprimento_m:.0f}m x {largura_m:.0f}m"
 
-# ==================== FUNÇÕES DE ENTROPIA AMOSTRAL ====================
-
-@st.cache_data(ttl=3600)
-def sample_entropy_fast(data, m=2, r=0.2):
-    data = np.asarray(data, dtype=np.float64)
-    N = len(data)
-    
-    if N < m + 1:
-        return np.nan
-    
-    std_data = np.std(data)
-    if std_data == 0:
-        return 0
-    r = r * std_data
-    
-    def _count_matches(m):
-        count = 0
-        total = 0
-        for i in range(N - m):
-            template = data[i:i+m]
-            for j in range(i + 1, N - m + 1):
-                diff = np.abs(template - data[j:j+m])
-                if np.max(diff) <= r:
-                    count += 1
-                total += 1
-        return count / total if total > 0 else 0
-    
-    phi_m = _count_matches(m)
-    phi_m1 = _count_matches(m + 1)
-    
-    if phi_m == 0 or phi_m1 == 0:
-        return 0
-    
-    return -np.log(phi_m1 / phi_m)
-
-@st.cache_data(ttl=3600)
-def rolling_sample_entropy(data, window_size=50, step=10, m=2, r=0.2):
-    N = len(data)
-    entropies = []
-    positions = []
-    
-    num_windows = min(30, (N - window_size) // step + 1)
-    
-    for i in range(0, N - window_size + 1, max(step, (N - window_size) // num_windows)):
-        window = data[i:i+window_size]
-        if len(window) > 10 and np.std(window) > 0.01:
-            ent = sample_entropy_fast(window, m=m, r=r)
-            if not np.isnan(ent):
-                entropies.append(ent)
-                positions.append(i + window_size // 2)
-    
-    return np.array(positions), np.array(entropies)
+def parse_coordenada_string(coord_str):
+    """Converte string de coordenada no formato do Google Maps para float"""
+    try:
+        # Remove aspas, espaços e parênteses
+        coord_str = coord_str.strip().strip('"').strip("'").strip('()')
+        # Separa por vírgula
+        partes = coord_str.split(',')
+        if len(partes) >= 2:
+            lat = float(partes[0].strip())
+            lon = float(partes[1].strip())
+            return lat, lon
+    except:
+        pass
+    return None, None
 
 # ==================== FUNÇÕES AUXILIARES ====================
 
@@ -210,14 +172,18 @@ def seconds_to_time_str(seconds, start_datetime):
     return target_time.strftime("%H:%M:%S")
 
 def extract_athlete_from_line8(content):
+    """Extrai o nome do atleta da linha 8 do arquivo - texto entre aspas após # Athlete:"""
     try:
         lines = content.split('\n')
         if len(lines) >= 8:
-            line8 = lines[7]
+            line8 = lines[7]  # linha 8 (índice 7)
+            # Procura pelo padrão # Athlete: "NOME"
             if '# Athlete:' in line8:
+                # Procura por texto entre aspas
                 match = re.search(r'"([^"]*)"', line8)
                 if match:
                     return match.group(1).strip()
+                # Se não encontrar aspas, tenta extrair após os dois pontos até o ponto e vírgula
                 parts = line8.split(':')
                 if len(parts) > 1:
                     nome = parts[1].split(';')[0].strip().strip('"')
@@ -335,7 +301,7 @@ if len(df_estadios) > 0:
         if estadio_selecionado:
             st.sidebar.success(f"✅ {estadio_selecionado['nome']}")
     
-    # INTERFACE DE CADASTRO MELHORADA COM PONTOS DE REFERÊNCIA
+    # INTERFACE DE CADASTRO MELHORADA COM ENTRADA SIMPLIFICADA
     if selecao_estadio == "Cadastrar novo estádio":
         with st.sidebar.expander("📝 Cadastrar novo estádio", expanded=True):
             st.markdown("### Dados básicos")
@@ -348,34 +314,53 @@ if len(df_estadios) > 0:
             
             st.markdown("---")
             st.markdown("### 🗺️ Pontos de referência do campo")
-            st.markdown("Informe as coordenadas dos **4 cantos do campo** (gramado).")
-            st.markdown("🔗 Dica: Abra o [Google Maps](https://www.google.com/maps) e clique com botão direito nos cantos.")
+            st.markdown("""
+            **Como obter as coordenadas:**
+            1. Abra o [Google Maps](https://www.google.com/maps) em outra aba
+            2. Localize o estádio e dê zoom máximo no campo
+            3. Clique com botão direito nos cantos e selecione "O que há aqui?"
+            4. Copie a coordenada que aparece (ex: `-3.8067363941105574, -38.5226464606229`)
+            5. Cole nos campos abaixo - o sistema vai extrair latitude e longitude automaticamente
+            """)
             
-            # Layout dos 4 cantos
+            # Layout dos 4 cantos com entrada simplificada
             col_esq, col_dir = st.columns(2)
             
             with col_esq:
-                st.markdown("**Lateral Esquerda**")
+                st.markdown("**🏁 Lateral Esquerda**")
+                
                 with st.expander("📍 Canto Superior Esquerdo (NO)", expanded=True):
-                    lat_no = st.number_input("Latitude NO", value=-3.806500, format="%.8f", key="lat_no")
-                    lon_no = st.number_input("Longitude NO", value=-38.524000, format="%.8f", key="lon_no")
+                    coord_no = st.text_input("Coordenada (cole do Google Maps)", 
+                                            value="-3.8067363941105574, -38.5226464606229",
+                                            key="coord_no",
+                                            help="Exemplo: -3.8067363941105574, -38.5226464606229")
                 
                 with st.expander("📍 Canto Inferior Esquerdo (SO)", expanded=True):
-                    lat_so = st.number_input("Latitude SO", value=-3.808800, format="%.8f", key="lat_so")
-                    lon_so = st.number_input("Longitude SO", value=-38.524000, format="%.8f", key="lon_so")
+                    coord_so = st.text_input("Coordenada (cole do Google Maps)", 
+                                            value="-3.8076924786839124, -38.52277184997347",
+                                            key="coord_so")
             
             with col_dir:
-                st.markdown("**Lateral Direita**")
+                st.markdown("**🏁 Lateral Direita**")
+                
                 with st.expander("📍 Canto Superior Direito (NE)", expanded=True):
-                    lat_ne = st.number_input("Latitude NE", value=-3.806500, format="%.8f", key="lat_ne")
-                    lon_ne = st.number_input("Longitude NE", value=-38.521500, format="%.8f", key="lon_ne")
+                    coord_ne = st.text_input("Coordenada (cole do Google Maps)", 
+                                            value="-3.8067363941105574, -38.5226464606229",
+                                            key="coord_ne")
                 
                 with st.expander("📍 Canto Inferior Direito (SE)", expanded=True):
-                    lat_se = st.number_input("Latitude SE", value=-3.808800, format="%.8f", key="lat_se")
-                    lon_se = st.number_input("Longitude SE", value=-38.521500, format="%.8f", key="lon_se")
+                    coord_se = st.text_input("Coordenada (cole do Google Maps)", 
+                                            value="-3.8076924786839124, -38.52277184997347",
+                                            key="coord_se")
             
-            # Calcular limites automaticamente
-            if lat_no != 0 and lat_so != 0 and lat_ne != 0 and lat_se != 0:
+            # Processar coordenadas
+            lat_no, lon_no = parse_coordenada_string(coord_no)
+            lat_ne, lon_ne = parse_coordenada_string(coord_ne)
+            lat_so, lon_so = parse_coordenada_string(coord_so)
+            lat_se, lon_se = parse_coordenada_string(coord_se)
+            
+            # Verificar se todas as coordenadas foram processadas
+            if all([lat_no is not None, lat_ne is not None, lat_so is not None, lat_se is not None]):
                 lat_min = min(lat_no, lat_ne, lat_so, lat_se)
                 lat_max = max(lat_no, lat_ne, lat_so, lat_se)
                 lon_min = min(lon_no, lon_ne, lon_so, lon_se)
@@ -428,7 +413,7 @@ if len(df_estadios) > 0:
                     else:
                         st.error("❌ Nome do estádio é obrigatório!")
             else:
-                st.info("👆 Preencha os 4 cantos do campo")
+                st.info("👆 Cole as coordenadas dos 4 cantos do campo (formato: latitude, longitude)")
 else:
     st.sidebar.warning("Nenhum estádio cadastrado")
     selecao_estadio = "Detectar automaticamente"
@@ -562,6 +547,7 @@ if uploaded_files:
         # Métricas
         df_main = dfs_filtered[0]
         atleta_main = selected_atletas[0]
+        periodo_main = selected_periodos[0]
         start_dt_main = selected_start_datetimes[0]
         
         st.markdown("### 📊 Filtros Aplicados")
@@ -589,9 +575,9 @@ if uploaded_files:
         with col5:
             st.metric("FC Máx", f"{df_main['HeartRate'].max():.0f} bpm")
         
-        # ==================== ABAS COMPLETAS ====================
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-            "🗺️ Mapa", "📈 Desempenho", "⚡ Velocidade", "❤️ FC", "🔄 Aceleração", "📊 Entropia", "📐 Tática"
+        # ==================== ABAS (SEM ENTROPIA) ====================
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+            "🗺️ Mapa", "📈 Desempenho", "⚡ Velocidade", "❤️ FC", "🔄 Aceleração", "📐 Tática"
         ])
         
         # TAB 1: MAPA
@@ -600,12 +586,14 @@ if uploaded_files:
             
             if len(selected_atletas) > 1:
                 atleta_mapa = st.selectbox("Atleta", selected_atletas, key="mapa_select")
-                idx = selected_atletas.index(atleta_mapa)
-                df_mapa = dfs_filtered[idx].copy()
-                start_dt_mapa = selected_start_datetimes[idx]
+                idx_mapa = selected_atletas.index(atleta_mapa)
+                df_mapa = dfs_filtered[idx_mapa].copy()
+                start_dt_mapa = selected_start_datetimes[idx_mapa]
+                atleta_mapa_nome = atleta_mapa
             else:
                 df_mapa = df_main.copy()
                 start_dt_mapa = start_dt_main
+                atleta_mapa_nome = atleta_main
             
             if estadio_selecionado:
                 center_lat, center_lon = centro_estadio
@@ -644,22 +632,27 @@ if uploaded_files:
             ))
             
             zoom = 18 if estadio_selecionado else 15
-            fig_map.update_layout(mapbox=dict(style=map_style, center=dict(lat=center_lat, lon=center_lon), zoom=zoom),
-                                  height=700, margin=dict(l=0, r=0, t=30, b=0))
+            fig_map.update_layout(
+                mapbox=dict(style=map_style, center=dict(lat=center_lat, lon=center_lon), zoom=zoom),
+                height=700, margin=dict(l=0, r=0, t=30, b=0),
+                title=f"Trajetória de {atleta_mapa_nome} - {nome_estadio}"
+            )
             st.plotly_chart(fig_map, use_container_width=True)
         
-        # TAB 2: GRÁFICOS DE DESEMPENHO (COMPLETO)
+        # TAB 2: GRÁFICOS DE DESEMPENHO
         with tab2:
             st.subheader("Velocidade e Frequência Cardíaca")
             
             if len(selected_atletas) > 1:
                 atleta_temp = st.selectbox("Atleta", selected_atletas, key="temp_select")
-                idx = selected_atletas.index(atleta_temp)
-                df_temp = dfs_filtered[idx].copy()
-                start_dt_temp = selected_start_datetimes[idx]
+                idx_temp = selected_atletas.index(atleta_temp)
+                df_temp = dfs_filtered[idx_temp].copy()
+                start_dt_temp = selected_start_datetimes[idx_temp]
+                atleta_temp_nome = atleta_temp
             else:
                 df_temp = df_main.copy()
                 start_dt_temp = start_dt_main
+                atleta_temp_nome = atleta_main
             
             df_temp['Horario'] = df_temp['Seconds'].apply(lambda x: seconds_to_time_str(x, start_dt_temp))
             
@@ -676,7 +669,13 @@ if uploaded_files:
             fig_temp.add_hline(y=hr_mean, line_dash="dash", line_color="#e74c3c",
                                annotation_text=f"FC Média: {hr_mean:.0f} bpm", secondary_y=True)
             
-            fig_temp.update_layout(title=f"{atleta_temp}", xaxis_title="Horário", height=500, hovermode='x unified')
+            fc_max = df_temp['HeartRate'].max()
+            fig_temp.add_hrect(y0=0, y1=fc_max*0.6, fillcolor="lightgreen", opacity=0.2, line_width=0, secondary_y=True)
+            fig_temp.add_hrect(y0=fc_max*0.6, y1=fc_max*0.75, fillcolor="yellow", opacity=0.2, line_width=0, secondary_y=True)
+            fig_temp.add_hrect(y0=fc_max*0.75, y1=fc_max*0.9, fillcolor="orange", opacity=0.2, line_width=0, secondary_y=True)
+            fig_temp.add_hrect(y0=fc_max*0.9, y1=fc_max, fillcolor="red", opacity=0.2, line_width=0, secondary_y=True)
+            
+            fig_temp.update_layout(title=f"{atleta_temp_nome}", xaxis_title="Horário", height=500, hovermode='x unified')
             fig_temp.update_yaxes(title_text="Velocidade (km/h)", secondary_y=False)
             fig_temp.update_yaxes(title_text="FC (bpm)", secondary_y=True)
             st.plotly_chart(fig_temp, use_container_width=True)
@@ -698,14 +697,14 @@ if uploaded_files:
                 fig_comp.update_layout(title="Comparação de Velocidade", xaxis_title="Horário", height=450)
                 st.plotly_chart(fig_comp, use_container_width=True)
         
-        # TAB 3: VELOCIDADE E ACELERAÇÃO (COMPLETO)
+        # TAB 3: VELOCIDADE E ACELERAÇÃO
         with tab3:
             st.subheader("Análise de Velocidade e Aceleração")
             
             if len(selected_atletas) > 1:
                 atleta_vel = st.selectbox("Atleta", selected_atletas, key="vel_select")
-                idx = selected_atletas.index(atleta_vel)
-                df_vel = dfs_filtered[idx].copy()
+                idx_vel = selected_atletas.index(atleta_vel)
+                df_vel = dfs_filtered[idx_vel].copy()
             else:
                 df_vel = df_main.copy()
             
@@ -729,14 +728,14 @@ if uploaded_files:
                 fig_acc.update_layout(xaxis_title="Tempo (s)", yaxis_title="Aceleração (m/s²)", height=450)
                 st.plotly_chart(fig_acc, use_container_width=True)
         
-        # TAB 4: FREQUÊNCIA CARDÍACA (COMPLETO)
+        # TAB 4: FREQUÊNCIA CARDÍACA
         with tab4:
             st.subheader("Análise da Frequência Cardíaca")
             
             if len(selected_atletas) > 1:
                 atleta_fc = st.selectbox("Atleta", selected_atletas, key="fc_select")
-                idx = selected_atletas.index(atleta_fc)
-                df_fc = dfs_filtered[idx].copy()
+                idx_fc = selected_atletas.index(atleta_fc)
+                df_fc = dfs_filtered[idx_fc].copy()
             else:
                 df_fc = df_main.copy()
             
@@ -770,14 +769,14 @@ if uploaded_files:
             zona_stats['% Tempo'] = (zona_stats['Tempo (samples)'] / len(df_fc) * 100).round(1).astype(str) + '%'
             st.dataframe(zona_stats, use_container_width=True)
         
-        # TAB 5: ACELERAÇÃO VS VELOCIDADE COM QUADRANTES (COMPLETO)
+        # TAB 5: ACELERAÇÃO VS VELOCIDADE COM QUADRANTES
         with tab5:
             st.subheader("Relação Aceleração vs Velocidade")
             
             if len(selected_atletas) > 1:
                 atleta_acc = st.selectbox("Atleta", selected_atletas, key="acc_select")
-                idx = selected_atletas.index(atleta_acc)
-                df_acc = dfs_filtered[idx].copy()
+                idx_acc = selected_atletas.index(atleta_acc)
+                df_acc = dfs_filtered[idx_acc].copy()
             else:
                 df_acc = df_main.copy()
             
@@ -827,85 +826,20 @@ if uploaded_files:
                 fig_pie = px.pie(quad_stats, values='Contagem', names=quad_stats.index, title="Distribuição por Quadrante")
                 st.plotly_chart(fig_pie, use_container_width=True)
         
-        # TAB 6: ENTROPIA AMOSTRAL (COMPLETO)
+        # TAB 6: ANÁLISE TÁTICA POR ZONAS
         with tab6:
-            st.subheader("Entropia Amostral - Regularidade dos Movimentos")
-            
-            if len(selected_atletas) > 1:
-                atleta_ent = st.selectbox("Atleta", selected_atletas, key="ent_select")
-                idx = selected_atletas.index(atleta_ent)
-                df_ent = dfs_filtered[idx].copy()
-            else:
-                df_ent = df_main.copy()
-            
-            var_options = {}
-            for col in ['Velocity', 'HeartRate', 'Acceleration']:
-                if col in df_ent.columns:
-                    var_options[col] = {'Velocity': 'Velocidade (km/h)', 'HeartRate': 'FC (bpm)', 'Acceleration': 'Aceleração (m/s²)'}[col]
-            
-            selected_var = st.selectbox("Variável", list(var_options.keys()), format_func=lambda x: var_options[x])
-            
-            col_m, col_r, col_roll = st.columns(3)
-            with col_m:
-                m_val = st.selectbox("m (sequência)", [1, 2, 3], index=1)
-            with col_r:
-                r_val = st.slider("r (tolerância)", 0.1, 0.5, 0.2, step=0.05)
-            with col_roll:
-                use_rolling = st.checkbox("Análise por janela", value=True)
-            
-            if st.button("🚀 Processar Entropia", type="primary"):
-                data = df_ent[selected_var].dropna().values
-                if len(data) > 30:
-                    entropy = sample_entropy_fast(data, m=m_val, r=r_val)
-                    st.metric("Entropia Amostral Global", f"{entropy:.4f}")
-                    
-                    if entropy < 0.5:
-                        st.info("🔵 Baixa entropia - Movimento repetitivo (possível fadiga)")
-                    elif entropy < 1.2:
-                        st.success("🟢 Média entropia - Variabilidade normal")
-                    else:
-                        st.warning("🟠 Alta entropia - Grande variabilidade")
-                    
-                    # Série temporal
-                    fig_ts = go.Figure()
-                    horarios = [seconds_to_time_str(t, reference_datetime) for t in df_ent['Seconds'].values[:len(data)]]
-                    fig_ts.add_trace(go.Scatter(x=horarios, y=data, mode='lines', name=var_options[selected_var]))
-                    fig_ts.update_layout(title="Série Temporal", xaxis_title="Horário", height=400)
-                    st.plotly_chart(fig_ts, use_container_width=True)
-                    
-                    # Rolling entropy
-                    if use_rolling and len(data) > 100:
-                        positions, rolling_ent = rolling_sample_entropy(data, window_size=50, step=20, m=m_val, r=r_val)
-                        if len(rolling_ent) > 0:
-                            fig_roll = go.Figure()
-                            time_pos = [seconds_to_time_str(df_ent['Seconds'].values[int(p)], reference_datetime) for p in positions]
-                            fig_roll.add_trace(go.Scatter(x=time_pos, y=rolling_ent, mode='lines+markers', name="Entropia"))
-                            fig_roll.update_layout(title="Entropia por Janela Deslizante", xaxis_title="Horário", height=400)
-                            st.plotly_chart(fig_roll, use_container_width=True)
-                            
-                            if len(rolling_ent) > 3:
-                                trend = rolling_ent[-1] - rolling_ent[0]
-                                if trend > 0.1:
-                                    st.info("📈 Tendência: Entropia aumentando")
-                                elif trend < -0.1:
-                                    st.warning("📉 Tendência: Entropia diminuindo (possível fadiga)")
-                                else:
-                                    st.success("➡️ Tendência estável")
-                else:
-                    st.warning(f"Dados insuficientes: {len(data)} pontos (mínimo 30)")
-        
-        # TAB 7: ANÁLISE TÁTICA POR ZONAS (COMPLETO)
-        with tab7:
             st.subheader("Análise Tática Integrada")
             
             if len(selected_atletas) > 1:
                 atleta_tat = st.selectbox("Atleta", selected_atletas, key="tat_select")
-                idx = selected_atletas.index(atleta_tat)
-                df_tat = dfs_filtered[idx].copy()
-                start_dt_tat = selected_start_datetimes[idx]
+                idx_tat = selected_atletas.index(atleta_tat)
+                df_tat = dfs_filtered[idx_tat].copy()
+                start_dt_tat = selected_start_datetimes[idx_tat]
+                atleta_tat_nome = atleta_tat
             else:
                 df_tat = df_main.copy()
                 start_dt_tat = start_dt_main
+                atleta_tat_nome = atleta_main
             
             col_lin, col_col = st.columns(2)
             with col_lin:
@@ -1000,7 +934,7 @@ if uploaded_files:
                 fig_tat.add_trace(go.Scatter(x=df_tat['Longitude'], y=df_tat['Latitude'],
                                              mode='markers', marker=dict(size=3, color='white', opacity=0.5), name='Trajetória'))
             
-            fig_tat.update_layout(title=f"Análise Tática - {atleta_tat}", xaxis_title="Longitude", yaxis_title="Latitude", height=700)
+            fig_tat.update_layout(title=f"Análise Tática - {atleta_tat_nome}", xaxis_title="Longitude", yaxis_title="Latitude", height=700)
             st.plotly_chart(fig_tat, use_container_width=True)
             
             # Top zonas
@@ -1013,7 +947,7 @@ if uploaded_files:
             
             # Exportar
             csv_tat = zona_metrics.reset_index().to_csv(index=False)
-            st.download_button("📥 Exportar análise tática", csv_tat, f"analise_tatica_{atleta_tat}.csv")
+            st.download_button("📥 Exportar análise tática", csv_tat, f"analise_tatica_{atleta_tat_nome}.csv")
         
         # Download dados filtrados
         st.markdown("---")
@@ -1032,16 +966,15 @@ else:
     2. **Selecione o estádio** ou use detecção automática
     3. **Escolha os atletas** para análise
     4. **Ajuste os filtros** de tempo e velocidade
-    5. **Explore as 7 abas** de análise
+    5. **Explore as 6 abas** de análise
     
     ### ✨ Funcionalidades:
-    - 🏟️ **Cadastro de estádios** por pontos de referência (4 cantos)
+    - 🏟️ **Cadastro de estádios** por pontos de referência (cole coordenadas do Google Maps)
     - 🗺️ **Mapa interativo** com trajetória
     - 📈 **Gráficos sobrepostos** (Velocidade + FC)
     - ⚡ **Distribuição de velocidades** e boxplot por percentil
     - ❤️ **Zonas de frequência cardíaca**
     - 🔄 **Quadrantes de aceleração vs velocidade**
-    - 📊 **Entropia amostral** (global e rolling)
     - 📐 **Análise tática** com divisão do campo em zonas
     
     ---
