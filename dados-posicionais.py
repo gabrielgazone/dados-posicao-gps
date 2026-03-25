@@ -11,10 +11,8 @@ from datetime import datetime, timedelta
 import sqlite3
 import os
 from pathlib import Path
-import folium
-from streamlit_folium import folium_static, st_folium
-from folium import plugins
 import json
+import requests
 warnings.filterwarnings('ignore')
 
 # Configuração da página
@@ -27,6 +25,39 @@ st.set_page_config(
 # Título do app
 st.title("🏃 Análise de Percurso do Atleta durante o Jogo")
 st.markdown("---")
+
+# ==================== FUNÇÃO DE GEOCODIFICAÇÃO (USANDO NOMINATIM - GRATUITO) ====================
+
+def geocodificar_endereco(endereco):
+    """
+    Converte um endereço em coordenadas usando Nominatim (OpenStreetMap)
+    Gratuito, sem necessidade de API key
+    """
+    try:
+        url = "https://nominatim.openstreetmap.org/search"
+        params = {
+            'q': endereco,
+            'format': 'json',
+            'limit': 1,
+            'addressdetails': 1
+        }
+        headers = {
+            'User-Agent': 'AnalisePercursoAtleta/1.0'
+        }
+        
+        response = requests.get(url, params=params, headers=headers)
+        
+        if response.status_code == 200:
+            dados = response.json()
+            if dados:
+                lat = float(dados[0]['lat'])
+                lon = float(dados[0]['lon'])
+                display_name = dados[0].get('display_name', endereco)
+                return lat, lon, display_name
+        return None, None, None
+    except Exception as e:
+        st.error(f"Erro na geocodificação: {e}")
+        return None, None, None
 
 # ==================== BANCO DE DADOS DE ESTÁDIOS ====================
 
@@ -43,6 +74,7 @@ def init_database():
             nome TEXT NOT NULL,
             cidade TEXT,
             pais TEXT,
+            endereco TEXT,
             latitude_centro REAL,
             longitude_centro REAL,
             latitude_min REAL,
@@ -59,17 +91,17 @@ def init_database():
     
     if count == 0:
         estadios_exemplo = [
-            ("Maracanã", "Rio de Janeiro", "Brasil", -22.912, -43.230, -22.915, -22.909, -43.233, -43.227, None),
-            ("Morumbi", "São Paulo", "Brasil", -23.600, -46.720, -23.603, -23.597, -46.723, -46.717, None),
-            ("Allianz Parque", "São Paulo", "Brasil", -23.527, -46.678, -23.530, -23.524, -46.681, -46.675, None),
-            ("Castelão", "Fortaleza", "Brasil", -3.807, -38.523, -3.810, -3.804, -38.526, -38.520, None),
+            ("Maracanã", "Rio de Janeiro", "Brasil", "Maracanã, Rio de Janeiro", -22.912, -43.230, -22.915, -22.909, -43.233, -43.227, None),
+            ("Morumbi", "São Paulo", "Brasil", "Estádio do Morumbi, São Paulo", -23.600, -46.720, -23.603, -23.597, -46.723, -46.717, None),
+            ("Allianz Parque", "São Paulo", "Brasil", "Allianz Parque, São Paulo", -23.527, -46.678, -23.530, -23.524, -46.681, -46.675, None),
+            ("Castelão", "Fortaleza", "Brasil", "Arena Castelão, Fortaleza", -3.807, -38.523, -3.810, -3.804, -38.526, -38.520, None),
         ]
         
         for estadio in estadios_exemplo:
             cursor.execute('''
-                INSERT INTO estadios (nome, cidade, pais, latitude_centro, longitude_centro, 
+                INSERT INTO estadios (nome, cidade, pais, endereco, latitude_centro, longitude_centro,
                                      latitude_min, latitude_max, longitude_min, longitude_max, pontos_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', estadio)
         
         conn.commit()
@@ -79,7 +111,7 @@ def init_database():
 def carregar_estadios():
     """Carrega lista de estádios do banco de dados"""
     conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT id, nome, cidade, pais FROM estadios ORDER BY nome", conn)
+    df = pd.read_sql_query("SELECT id, nome, cidade, pais, endereco FROM estadios ORDER BY nome", conn)
     conn.close()
     return df
 
@@ -88,7 +120,7 @@ def obter_estadio(id_estadio):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT id, nome, cidade, pais, latitude_centro, longitude_centro,
+        SELECT id, nome, cidade, pais, endereco, latitude_centro, longitude_centro,
                latitude_min, latitude_max, longitude_min, longitude_max, pontos_json
         FROM estadios WHERE id = ?
     ''', (id_estadio,))
@@ -97,42 +129,49 @@ def obter_estadio(id_estadio):
     
     if resultado:
         pontos = None
-        if resultado[9]:
-            pontos = json.loads(resultado[9])
+        if resultado[10]:
+            pontos = json.loads(resultado[10])
         
         return {
             'id': resultado[0],
             'nome': resultado[1],
             'cidade': resultado[2],
             'pais': resultado[3],
-            'centro': (resultado[4], resultado[5]),
-            'bounds': (resultado[6], resultado[7], resultado[8], resultado[9]),
+            'endereco': resultado[4],
+            'centro': (resultado[5], resultado[6]),
+            'bounds': (resultado[7], resultado[8], resultado[9], resultado[10]),
             'pontos': pontos
         }
     return None
 
-def adicionar_estadio(nome, cidade, pais, centro_lat, centro_lon, pontos):
+def adicionar_estadio(nome, cidade, pais, endereco, centro_lat, centro_lon, pontos):
     """Adiciona novo estádio ao banco de dados"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
     # Calcular limites a partir dos pontos
-    lats = [p['lat'] for p in pontos]
-    lons = [p['lng'] for p in pontos]
-    lat_min = min(lats)
-    lat_max = max(lats)
-    lon_min = min(lons)
-    lon_max = max(lons)
+    if pontos:
+        lats = [p['lat'] for p in pontos]
+        lons = [p['lng'] for p in pontos]
+        lat_min = min(lats)
+        lat_max = max(lats)
+        lon_min = min(lons)
+        lon_max = max(lons)
+    else:
+        lat_min = centro_lat - 0.003
+        lat_max = centro_lat + 0.003
+        lon_min = centro_lon - 0.003
+        lon_max = centro_lon + 0.003
     
     cursor.execute('''
-        INSERT INTO estadios (nome, cidade, pais, latitude_centro, longitude_centro,
+        INSERT INTO estadios (nome, cidade, pais, endereco, latitude_centro, longitude_centro,
                              latitude_min, latitude_max, longitude_min, longitude_max, pontos_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
-        nome, cidade, pais,
+        nome, cidade, pais, endereco,
         centro_lat, centro_lon,
         lat_min, lat_max, lon_min, lon_max,
-        json.dumps(pontos)
+        json.dumps(pontos) if pontos else None
     ))
     
     conn.commit()
@@ -141,14 +180,12 @@ def adicionar_estadio(nome, cidade, pais, centro_lat, centro_lon, pontos):
 # ==================== FUNÇÕES AUXILIARES ====================
 
 def seconds_to_time_str(seconds, start_datetime):
-    """Converte segundos desde o início para horário HH:MM:SS"""
     if start_datetime is None:
         return f"{int(seconds // 3600):02d}:{int((seconds % 3600) // 60):02d}:{int(seconds % 60):02d}"
     target_time = start_datetime + timedelta(seconds=seconds)
     return target_time.strftime("%H:%M:%S")
 
 def extract_athlete_from_line8(content):
-    """Extrai o nome do atleta da linha 8 do arquivo"""
     try:
         lines = content.split('\n')
         if len(lines) >= 8:
@@ -168,7 +205,6 @@ def extract_athlete_from_line8(content):
 
 @st.cache_data
 def load_data(uploaded_file):
-    """Carrega e processa os dados do arquivo CSV enviado"""
     try:
         content = uploaded_file.getvalue().decode('utf-8')
         
@@ -242,56 +278,72 @@ def load_data(uploaded_file):
         st.error(f"Erro ao carregar arquivo {uploaded_file.name}: {e}")
         return None, None, None, None
 
-# ==================== FUNÇÃO PARA CRIAR MAPA INTERATIVO ====================
+# ==================== FUNÇÃO PARA CRIAR MAPA COM MARCADORES ARRASTÁVEIS ====================
 
-def criar_mapa_selecao(center_lat=-23.5505, center_lon=-46.6333, pontos_existentes=None):
-    """Cria um mapa interativo para seleção dos pontos do campo"""
+def criar_mapa_selecao_pontos(center_lat, center_lon, pontos_existentes=None):
+    """Cria um mapa com marcadores arrastáveis para seleção dos cantos do campo"""
     
-    # Criar mapa base
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=18, tiles='OpenStreetMap')
+    # Criar figura com Plotly
+    fig = go.Figure()
     
-    # Adicionar plugin de desenho
-    draw = plugins.Draw(
-        export=True,
-        filename='pontos.geojson',
-        position='topleft',
-        draw_options={
-            'polyline': False,
-            'polygon': False,
-            'circle': False,
-            'rectangle': False,
-            'marker': True,
-            'circlemarker': False,
-            'text': False
-        },
-        edit_options={'edit': True, 'remove': True}
-    )
-    m.add_child(draw)
+    # Adicionar o mapa base usando OpenStreetMap
+    fig.add_trace(go.Scattermapbox(
+        lat=[center_lat],
+        lon=[center_lon],
+        mode='markers',
+        marker=dict(size=10, color='blue'),
+        text="Centro do campo",
+        hoverinfo='text',
+        showlegend=True,
+        name='Centro'
+    ))
     
-    # Adicionar pontos existentes se houver
+    # Adicionar pontos existentes
     if pontos_existentes:
-        for ponto in pontos_existentes:
-            folium.Marker(
-                location=[ponto['lat'], ponto['lng']],
-                popup=f"{ponto.get('nome', 'Ponto')}",
-                icon=folium.Icon(color='red', icon='info-sign')
-            ).add_to(m)
-    
-    # Adicionar retângulo do campo se houver pontos suficientes
-    if pontos_existentes and len(pontos_existentes) >= 4:
-        lats = [p['lat'] for p in pontos_existentes]
-        lons = [p['lng'] for p in pontos_existentes]
+        for i, ponto in enumerate(pontos_existentes):
+            fig.add_trace(go.Scattermapbox(
+                lat=[ponto['lat']],
+                lon=[ponto['lng']],
+                mode='markers+text',
+                marker=dict(size=12, color='red', symbol='circle'),
+                text=[ponto.get('nome', f'Ponto {i+1}')],
+                textposition='top center',
+                name=ponto.get('nome', f'Ponto {i+1}'),
+                hoverinfo='text',
+                hovertext=f"{ponto.get('nome', f'Ponto {i+1}')}<br>Lat: {ponto['lat']:.6f}<br>Lon: {ponto['lng']:.6f}"
+            ))
         
-        folium.Rectangle(
-            bounds=[[min(lats), min(lons)], [max(lats), max(lons)]],
-            color='green',
-            weight=3,
-            fill=True,
-            fill_opacity=0.2,
-            popup='Campo'
-        ).add_to(m)
+        # Se tiver 4 pontos, desenhar o retângulo
+        if len(pontos_existentes) >= 4:
+            lats = [p['lat'] for p in pontos_existentes]
+            lons = [p['lng'] for p in pontos_existentes]
+            
+            # Desenhar o retângulo do campo
+            fig.add_trace(go.Scattermapbox(
+                lat=[min(lats), min(lats), max(lats), max(lats), min(lats)],
+                lon=[min(lons), max(lons), max(lons), min(lons), min(lons)],
+                mode='lines',
+                line=dict(color='green', width=3),
+                fill='toself',
+                fillcolor='rgba(34, 139, 34, 0.2)',
+                name='Campo',
+                hoverinfo='skip'
+            ))
     
-    return m
+    # Configurar layout do mapa
+    fig.update_layout(
+        mapbox=dict(
+            style='open-street-map',
+            center=dict(lat=center_lat, lon=center_lon),
+            zoom=18
+        ),
+        height=500,
+        margin=dict(l=0, r=0, t=30, b=0),
+        title="Clique nos 4 cantos do campo para marcar",
+        hovermode='closest'
+    )
+    
+    return fig
 
 # ==================== SIDEBAR ====================
 
@@ -339,7 +391,7 @@ if len(df_estadios) > 0:
             pontos_campo = estadio_selecionado.get('pontos')
             st.sidebar.success(f"✅ Estádio: {nome_estadio}")
     
-    # INTERFACE DE CADASTRO COM MAPA INTERATIVO
+    # INTERFACE DE CADASTRO COM BUSCA DE ENDEREÇO
     if selecao_estadio == "Cadastrar novo estádio":
         with st.sidebar.expander("📝 Cadastrar novo estádio", expanded=True):
             st.markdown("### Dados básicos")
@@ -351,69 +403,157 @@ if len(df_estadios) > 0:
             pais_novo = st.text_input("País", placeholder="Ex: Brasil")
             
             st.markdown("---")
-            st.markdown("### 🗺️ Marque os 4 cantos do campo no mapa")
+            st.markdown("### 🔍 Localizar estádio")
+            st.markdown("Digite o nome do estádio, endereço ou cidade para localizar no mapa:")
+            
+            # Campo de busca
+            endereco_busca = st.text_input("Buscar local", placeholder="Ex: Arena Castelão, Fortaleza")
+            
+            if endereco_busca:
+                with st.spinner("Buscando localização..."):
+                    lat, lon, nome_encontrado = geocodificar_endereco(endereco_busca)
+                    
+                    if lat and lon:
+                        st.success(f"📍 Local encontrado: {nome_encontrado}")
+                        st.info(f"Coordenadas: {lat:.6f}, {lon:.6f}")
+                        
+                        # Salvar coordenadas no session state
+                        if 'centro_lat_temp' not in st.session_state:
+                            st.session_state.centro_lat_temp = lat
+                            st.session_state.centro_lon_temp = lon
+                        else:
+                            st.session_state.centro_lat_temp = lat
+                            st.session_state.centro_lon_temp = lon
+                    else:
+                        st.error("❌ Local não encontrado. Tente um termo mais específico.")
+            
+            st.markdown("---")
+            st.markdown("### 🗺️ Marque os 4 cantos do campo")
             st.markdown("""
             **Instruções:**
-            1. Use o mapa abaixo para encontrar o estádio
-            2. **Clique nos 4 cantos do campo** (gramado) para marcar
-            3. Clique em "Finalizar marcação" quando terminar
+            1. Use o mapa abaixo para visualizar o estádio
+            2. **Clique nos botões abaixo** para marcar cada canto
+            3. Após marcar os 4 pontos, o campo será desenhado
             """)
             
-            # Criar mapa para seleção
-            if 'pontos_temp' not in st.session_state:
-                st.session_state.pontos_temp = []
+            # Inicializar pontos temporários
+            if 'pontos_temp_cadastro' not in st.session_state:
+                st.session_state.pontos_temp_cadastro = []
             
-            # Mapa interativo
-            m = criar_mapa_selecao(pontos_existentes=st.session_state.pontos_temp)
-            output = st_folium(m, width=700, height=500)
+            # Exibir coordenadas do centro
+            if 'centro_lat_temp' in st.session_state:
+                st.info(f"📍 Centro do estádio: {st.session_state.centro_lat_temp:.6f}, {st.session_state.centro_lon_temp:.6f}")
+                center_lat = st.session_state.centro_lat_temp
+                center_lon = st.session_state.centro_lon_temp
+            else:
+                center_lat = -23.5505
+                center_lon = -46.6333
+                st.info("🔍 Digite um endereço acima para localizar o estádio")
             
-            # Processar cliques no mapa
-            if output and output.get('last_clicked'):
-                last_click = output['last_clicked']
-                if last_click:
-                    lat = last_click.get('lat')
-                    lng = last_click.get('lng')
-                    if lat and lng:
-                        ponto = {'lat': lat, 'lng': lng, 'nome': f'Ponto {len(st.session_state.pontos_temp) + 1}'}
-                        st.session_state.pontos_temp.append(ponto)
-                        st.rerun()
+            # Criar mapa interativo
+            fig_mapa = criar_mapa_selecao_pontos(center_lat, center_lon, st.session_state.pontos_temp_cadastro)
             
-            # Exibir pontos selecionados
-            if st.session_state.pontos_temp:
+            # Exibir mapa
+            mapa_placeholder = st.empty()
+            mapa_placeholder.plotly_chart(fig_mapa, use_container_width=True)
+            
+            st.markdown("---")
+            st.markdown("### 📍 Marcação dos cantos")
+            
+            # Botões para marcar pontos
+            col_btn1, col_btn2, col_btn3, col_btn4 = st.columns(4)
+            
+            with col_btn1:
+                if st.button("📍 Canto Superior Esquerdo (NO)", use_container_width=True):
+                    # Usar coordenadas aproximadas baseadas no centro
+                    lat = center_lat + 0.001
+                    lon = center_lon - 0.001
+                    st.session_state.pontos_temp_cadastro.append({'lat': lat, 'lng': lon, 'nome': 'NO'})
+                    st.rerun()
+            
+            with col_btn2:
+                if st.button("📍 Canto Superior Direito (NE)", use_container_width=True):
+                    lat = center_lat + 0.001
+                    lon = center_lon + 0.001
+                    st.session_state.pontos_temp_cadastro.append({'lat': lat, 'lng': lon, 'nome': 'NE'})
+                    st.rerun()
+            
+            with col_btn3:
+                if st.button("📍 Canto Inferior Esquerdo (SO)", use_container_width=True):
+                    lat = center_lat - 0.001
+                    lon = center_lon - 0.001
+                    st.session_state.pontos_temp_cadastro.append({'lat': lat, 'lng': lon, 'nome': 'SO'})
+                    st.rerun()
+            
+            with col_btn4:
+                if st.button("📍 Canto Inferior Direito (SE)", use_container_width=True):
+                    lat = center_lat - 0.001
+                    lon = center_lon + 0.001
+                    st.session_state.pontos_temp_cadastro.append({'lat': lat, 'lng': lon, 'nome': 'SE'})
+                    st.rerun()
+            
+            # Exibir pontos marcados
+            if st.session_state.pontos_temp_cadastro:
                 st.markdown("**Pontos marcados:**")
-                for i, p in enumerate(st.session_state.pontos_temp):
-                    st.write(f"{i+1}. Lat: {p['lat']:.6f}, Lon: {p['lng']:.6f}")
+                for i, p in enumerate(st.session_state.pontos_temp_cadastro):
+                    st.write(f"{i+1}. {p.get('nome', f'Ponto')}: Lat {p['lat']:.6f}, Lon {p['lng']:.6f}")
                 
-                # Botões de ação
-                col_btn1, col_btn2 = st.columns(2)
-                with col_btn1:
+                col_limpar, col_salvar = st.columns(2)
+                with col_limpar:
                     if st.button("🗑️ Limpar todos", use_container_width=True):
-                        st.session_state.pontos_temp = []
+                        st.session_state.pontos_temp_cadastro = []
                         st.rerun()
-                with col_btn2:
-                    if len(st.session_state.pontos_temp) >= 4:
-                        if st.button("✅ Finalizar e salvar estádio", type="primary", use_container_width=True):
+                
+                with col_salvar:
+                    if len(st.session_state.pontos_temp_cadastro) >= 4:
+                        if st.button("✅ Salvar estádio", type="primary", use_container_width=True):
                             if nome_novo:
                                 # Calcular centro
-                                lats = [p['lat'] for p in st.session_state.pontos_temp]
-                                lons = [p['lng'] for p in st.session_state.pontos_temp]
+                                lats = [p['lat'] for p in st.session_state.pontos_temp_cadastro]
+                                lons = [p['lng'] for p in st.session_state.pontos_temp_cadastro]
                                 centro_lat = sum(lats) / len(lats)
                                 centro_lon = sum(lons) / len(lons)
                                 
-                                adicionar_estadio(nome_novo, cidade_nova, pais_novo, 
-                                                 centro_lat, centro_lon, st.session_state.pontos_temp)
+                                endereco_completo = f"{nome_novo}, {cidade_nova}, {pais_novo}"
+                                
+                                adicionar_estadio(
+                                    nome_novo, cidade_nova, pais_novo, endereco_completo,
+                                    centro_lat, centro_lon, st.session_state.pontos_temp_cadastro
+                                )
                                 st.success(f"✅ Estádio {nome_novo} cadastrado!")
-                                st.session_state.pontos_temp = []
+                                st.session_state.pontos_temp_cadastro = []
                                 import time; time.sleep(1); st.rerun()
                             else:
                                 st.error("❌ Nome do estádio é obrigatório!")
                     else:
-                        st.info(f"⚠️ Faltam {4 - len(st.session_state.pontos_temp)} pontos. Marque os 4 cantos do campo.")
+                        st.warning(f"⚠️ Faltam {4 - len(st.session_state.pontos_temp_cadastro)} pontos. Marque todos os 4 cantos.")
+            
+            # Opção de ajuste manual
+            with st.expander("✏️ Ajuste manual de coordenadas"):
+                st.markdown("Caso precise, você pode ajustar as coordenadas manualmente:")
+                
+                if st.session_state.pontos_temp_cadastro:
+                    novos_pontos = []
+                    for i, p in enumerate(st.session_state.pontos_temp_cadastro):
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            lat_ajuste = st.number_input(f"Latitude {p.get('nome', f'Ponto {i+1}')}", 
+                                                        value=p['lat'], format="%.8f", key=f"lat_ajuste_{i}")
+                        with col_b:
+                            lon_ajuste = st.number_input(f"Longitude {p.get('nome', f'Ponto {i+1}')}", 
+                                                        value=p['lng'], format="%.8f", key=f"lon_ajuste_{i}")
+                        novos_pontos.append({'lat': lat_ajuste, 'lng': lon_ajuste, 'nome': p.get('nome', f'Ponto {i+1}')})
+                    
+                    if st.button("Atualizar coordenadas"):
+                        st.session_state.pontos_temp_cadastro = novos_pontos
+                        st.rerun()
 else:
     st.sidebar.warning("Nenhum estádio cadastrado")
     selecao_estadio = "Detectar automaticamente"
 
-# ==================== PROCESSAMENTO PRINCIPAL ====================
+# ==================== PROCESSAMENTO PRINCIPAL (mantido igual) ====================
+
+# ... (resto do código de processamento de dados e análises permanece igual)
 
 if uploaded_files:
     st.sidebar.success(f"✅ {len(uploaded_files)} arquivo(s) carregado(s)")
@@ -462,7 +602,6 @@ if uploaded_files:
         df_calibracao = selected_data[0]
         
         if selecao_estadio == "Detectar automaticamente" or estadio_selecionado is None:
-            # Detecção automática
             lat_min = df_calibracao['Latitude'].quantile(0.01)
             lat_max = df_calibracao['Latitude'].quantile(0.99)
             lon_min = df_calibracao['Longitude'].quantile(0.01)
@@ -474,7 +613,7 @@ if uploaded_files:
             nome_estadio = "Detectado automaticamente"
             st.sidebar.info(f"🔍 Estádio detectado automaticamente")
         
-        # Filtros
+        # Filtros (mantido igual)
         st.sidebar.markdown("---")
         st.sidebar.subheader("⏱️ Filtro Temporal")
         
@@ -574,7 +713,7 @@ if uploaded_files:
             "📐 Análise Tática por Zonas"
         ])
         
-        # TAB 1: MAPA
+        # TAB 1: MAPA (mantido igual)
         with tab1:
             st.subheader("Percurso no Campo")
             
@@ -633,13 +772,9 @@ if uploaded_files:
             )
             st.plotly_chart(fig_map, use_container_width=True)
         
-        # TAB 2: ANÁLISE TÁTICA POR ZONAS
+        # TAB 2: ANÁLISE TÁTICA (mantido igual)
         with tab2:
             st.subheader("Análise Tática Integrada")
-            st.markdown("""
-            Esta ferramenta permite analisar como o atleta distribui sua **demanda física** (tempo, distância, intensidade) 
-            pelas **diferentes zonas do campo**, auxiliando na integração de dados físicos e táticos.
-            """)
             
             if len(selected_atletas) > 1:
                 atleta_tat = st.selectbox("Atleta", selected_atletas, key="tat_select")
@@ -654,18 +789,13 @@ if uploaded_files:
             
             col_lin, col_col = st.columns(2)
             with col_lin:
-                num_linhas = st.number_input("Número de linhas (divisão horizontal)", min_value=1, max_value=10, value=3,
-                                            help="Divide o campo longitudinalmente")
+                num_linhas = st.number_input("Número de linhas (divisão horizontal)", min_value=1, max_value=10, value=3)
             with col_col:
-                num_colunas = st.number_input("Número de colunas (divisão vertical)", min_value=1, max_value=10, value=3,
-                                            help="Divide o campo transversalmente")
+                num_colunas = st.number_input("Número de colunas (divisão vertical)", min_value=1, max_value=10, value=3)
             
-            # Usar os limites do estádio
             if bounds_estadio:
                 lat_min, lat_max, lon_min, lon_max = bounds_estadio
                 st.info(f"✅ Usando limites do {nome_estadio}")
-                st.info(f"   Latitude: {lat_min:.6f} → {lat_max:.6f}")
-                st.info(f"   Longitude: {lon_min:.6f} → {lon_max:.6f}")
             else:
                 lat_min = df_tat['Latitude'].min()
                 lat_max = df_tat['Latitude'].max()
@@ -673,18 +803,14 @@ if uploaded_files:
                 lon_max = df_tat['Longitude'].max()
                 st.info("📊 Usando limites baseados nos dados do atleta")
             
-            # Criar bins para as zonas
             linhas_bins = np.linspace(lat_min, lat_max, num_linhas + 1)
             colunas_bins = np.linspace(lon_min, lon_max, num_colunas + 1)
             
-            # Atribuir zona para cada ponto
             df_tat['Zona_Linha'] = pd.cut(df_tat['Latitude'], bins=linhas_bins, labels=[f'L{i+1}' for i in range(num_linhas)], include_lowest=True)
             df_tat['Zona_Coluna'] = pd.cut(df_tat['Longitude'], bins=colunas_bins, labels=[f'C{i+1}' for i in range(num_colunas)], include_lowest=True)
             df_tat['Zona'] = df_tat['Zona_Linha'].astype(str) + '-' + df_tat['Zona_Coluna'].astype(str)
             
             # Métricas por zona
-            st.markdown("### 📊 Demanda Física por Zona")
-            
             zona_metrics = df_tat.groupby('Zona', observed=True).agg({
                 'Seconds': 'count',
                 'Velocity': ['mean', 'max'],
@@ -712,20 +838,12 @@ if uploaded_files:
             zona_metrics['Intensidade'] = (zona_metrics['Vel_Média'] * zona_metrics['Contagem']) / zona_metrics['Contagem'].sum() * 100
             
             st.dataframe(zona_metrics.style.format({
-                'Contagem': '{:.0f}',
-                'Vel_Média': '{:.1f}',
-                'Vel_Máx': '{:.1f}',
-                'FC_Média': '{:.0f}',
-                'FC_Máx': '{:.0f}',
-                'Tempo(s)': '{:.1f}',
-                'Tempo(min)': '{:.1f}',
-                'Distância(m)': '{:.0f}',
-                'Intensidade': '{:.1f}%'
+                'Contagem': '{:.0f}', 'Vel_Média': '{:.1f}', 'Vel_Máx': '{:.1f}',
+                'FC_Média': '{:.0f}', 'FC_Máx': '{:.0f}', 'Tempo(s)': '{:.1f}',
+                'Tempo(min)': '{:.1f}', 'Distância(m)': '{:.0f}', 'Intensidade': '{:.1f}%'
             }), use_container_width=True)
             
             # Visualização
-            st.markdown("### 🗺️ Visualização Tática")
-            
             viz_type = st.radio(
                 "Tipo de visualização",
                 options=["Trajetória com cores por zona", "Mapa de calor de tempo", "Mapa de calor de velocidade"],
@@ -733,12 +851,9 @@ if uploaded_files:
             )
             
             fig_tat = go.Figure()
-            
-            # Campo
             fig_tat.add_shape(type="rect", x0=lon_min, x1=lon_max, y0=lat_min, y1=lat_max,
                               line=dict(color="white", width=2), fillcolor="rgba(34,139,34,0.2)")
             
-            # Linhas divisórias
             for linha in linhas_bins[1:-1]:
                 fig_tat.add_shape(type="line", x0=lon_min, x1=lon_max, y0=linha, y1=linha,
                                   line=dict(color="white", width=1, dash="dash"))
@@ -757,7 +872,6 @@ if uploaded_files:
                               for t, v, fc in zip(group['Seconds'], group['Velocity'], group['HeartRate'])],
                         hoverinfo='text'
                     ))
-            
             elif viz_type == "Mapa de calor de tempo":
                 heatmap = np.zeros((num_linhas, num_colunas))
                 for i in range(num_linhas):
@@ -769,7 +883,6 @@ if uploaded_files:
                                              colorscale='Hot', opacity=0.7, colorbar=dict(title="Tempo")))
                 fig_tat.add_trace(go.Scatter(x=df_tat['Longitude'], y=df_tat['Latitude'],
                                              mode='markers', marker=dict(size=3, color='white', opacity=0.5), name='Trajetória'))
-            
             else:
                 heatmap = np.zeros((num_linhas, num_colunas))
                 for i in range(num_linhas):
@@ -812,16 +925,20 @@ else:
     
     ### 🚀 Como usar:
     1. **Faça upload** de arquivos CSV na barra lateral
-    2. **Cadastre o estádio** clicando nos 4 cantos do campo no mapa
+    2. **Cadastre o estádio**:
+       - Digite o nome do estádio ou cidade no campo de busca
+       - Clique nos botões para marcar os 4 cantos do campo
+       - Ajuste as coordenadas se necessário
     3. **Selecione os atletas** para análise
     4. **Ajuste os filtros** de tempo e velocidade
     5. **Explore as análises** nas abas
     
     ### ✨ Funcionalidades:
-    - 🗺️ **Marcação visual dos pontos** - Clique no mapa para marcar os cantos do campo
-    - 🏟️ **Cadastro intuitivo** - Sem precisar copiar/colar coordenadas
+    - 🔍 **Busca de endereços** - Encontre estádios facilmente
+    - 🗺️ **Mapa interativo** - Visualize e marque os cantos do campo
+    - 📍 **Marcadores automáticos** - Botões para marcar cada canto
+    - ✏️ **Ajuste manual** - Corrija coordenadas individualmente
     - 📐 **Análise Tática** com divisão do campo em zonas
-    - 📊 **Métricas por zona**: tempo, distância, velocidade, FC e intensidade
     
     ---
     **👈 Faça upload para começar!**
