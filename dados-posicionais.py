@@ -165,6 +165,52 @@ X_MAX = CAMPO_COMPRIMENTO / 2
 Y_MIN = -CAMPO_LARGURA / 2
 Y_MAX = CAMPO_LARGURA / 2
 
+# ==================== CONSTANTES FISIOLÓGICAS (em m/s) ====================
+VEL_MAX_HUMANA_MS = 13.0  # 46.8 km/h
+VEL_MIN_HUMANA_MS = 0.0
+ACEL_MAX_HUMANA_MS2 = 8.0
+DESACEL_MAX_HUMANA_MS2 = -9.0
+
+# ==================== FUNÇÃO DE VALIDAÇÃO E FILTRAGEM ====================
+
+def validar_e_filtrar_dados(df):
+    """
+    Valida e filtra dados com base em limites fisiológicos
+    Retorna o DataFrame filtrado e um relatório de dados removidos
+    """
+    df_filtrado = df.copy()
+    alertas = []
+    stats_remocao = {}
+    
+    # 1. Filtrar velocidade (dados em m/s)
+    if 'Velocity' in df_filtrado.columns:
+        v_ms = df_filtrado['Velocity'].values
+        v_original_max = v_ms.max() if len(v_ms) > 0 else 0
+        v_original_max_kmh = v_original_max * 3.6
+        
+        mask_vel_valida = (v_ms >= VEL_MIN_HUMANA_MS) & (v_ms <= VEL_MAX_HUMANA_MS)
+        num_removidos_vel = (~mask_vel_valida).sum()
+        pct_removidos_vel = (num_removidos_vel / len(df_filtrado)) * 100 if len(df_filtrado) > 0 else 0
+        
+        if num_removidos_vel > 0:
+            alertas.append(f"⚠️ {num_removidos_vel} registros ({pct_removidos_vel:.1f}%) com velocidade fora do limite humano (0-{VEL_MAX_HUMANA_MS*3.6:.0f} km/h) foram removidos")
+            stats_remocao['velocidade'] = {'removidos': num_removidos_vel, 'pct': pct_removidos_vel}
+            df_filtrado = df_filtrado[mask_vel_valida]
+    
+    # 2. Filtrar aceleração (dados em m/s²)
+    if 'Acceleration' in df_filtrado.columns:
+        a_ms2 = df_filtrado['Acceleration'].values
+        mask_acc_valida = (a_ms2 >= DESACEL_MAX_HUMANA_MS2) & (a_ms2 <= ACEL_MAX_HUMANA_MS2)
+        num_removidos_acc = (~mask_acc_valida).sum()
+        pct_removidos_acc = (num_removidos_acc / len(df_filtrado)) * 100 if len(df_filtrado) > 0 else 0
+        
+        if num_removidos_acc > 0:
+            alertas.append(f"⚠️ {num_removidos_acc} registros ({pct_removidos_acc:.1f}%) com aceleração fora do limite humano ({DESACEL_MAX_HUMANA_MS2:.0f}-{ACEL_MAX_HUMANA_MS2:.0f} m/s²) foram removidos")
+            stats_remocao['aceleracao'] = {'removidos': num_removidos_acc, 'pct': pct_removidos_acc}
+            df_filtrado = df_filtrado[mask_acc_valida]
+    
+    return df_filtrado, alertas, stats_remocao
+
 # ==================== FUNÇÃO CORRIGIDA DO PERFIL ACELERAÇÃO-VELOCIDADE ====================
 
 def fit_velocidade_aceleracao(velocidades, aceleracoes):
@@ -179,7 +225,6 @@ def fit_velocidade_aceleracao(velocidades, aceleracoes):
     Parâmetros fisiológicos esperados (em m/s e m/s²):
     - a0: 2-5 m/s² (aceleração máxima)
     - v0: 8-12 m/s (28.8-43.2 km/h)
-    - Pmax = a0 * v0 / 4: 4-15 W/kg
     """
     # Remover valores inválidos
     mask = (velocidades > 0) & (aceleracoes > -5) & (aceleracoes < 10) & (~np.isnan(velocidades)) & (~np.isnan(aceleracoes))
@@ -242,7 +287,7 @@ def fit_velocidade_aceleracao(velocidades, aceleracoes):
         # Modelo físico: a = a0 - (a0/v0) * v
         a0 = intercept
         
-        # Garantir que a0 seja positivo e fisiológico (1.5-6.0 m/s²)
+        # Garantir que a0 seja positivo e fisiológico
         if a0 <= 0 or a0 > 8:
             a0 = np.percentile(a_filtered[a_filtered > 0], 85) if np.any(a_filtered > 0) else 2.5
             a0 = np.clip(a0, 1.5, 6.0)
@@ -257,11 +302,11 @@ def fit_velocidade_aceleracao(velocidades, aceleracoes):
                 v0 = np.percentile(v_correspondentes, 90) * 1.2
             else:
                 v0 = np.max(v_filtered) * 1.1
-            v0 = np.clip(v0, 6.0, 13.0)
+            v0 = np.clip(v0, 6.0, VEL_MAX_HUMANA_MS)
             slope = -a0 / v0
         
-        # Limitar v0 a valores fisiológicos (6-13 m/s = 21.6-46.8 km/h)
-        v0 = np.clip(v0, 6.0, 13.0)
+        # Limitar v0 a valores fisiológicos
+        v0 = np.clip(v0, 6.0, VEL_MAX_HUMANA_MS)
         
         # Potência máxima
         p_max = a0 * v0 / 4
@@ -298,7 +343,7 @@ def fit_velocidade_aceleracao(velocidades, aceleracoes):
                 else:
                     v0 = np.percentile(v_z, 90) * 1.2
                 
-                v0 = np.clip(v0, 6.0, 13.0)
+                v0 = np.clip(v0, 6.0, VEL_MAX_HUMANA_MS)
                 slope = -a0 / v0
                 p_max = a0 * v0 / 4
                 p_max = np.clip(p_max, 4.0, 20.0)
@@ -325,12 +370,12 @@ def calcular_asp_metrics(df):
     if len(df_sprints) < 10:
         return None
     
-    # Velocidade já está em m/s (dados do GPS)
+    # Velocidade já está em m/s
     v_ms = df_sprints['Velocity'].values
     a_ms2 = df_sprints['Acceleration'].values
     
-    # Limitar velocidade a valores fisiológicos (máximo 13 m/s = 46.8 km/h)
-    v_ms = np.clip(v_ms, 0, 13.0)
+    # Limitar velocidade a valores fisiológicos
+    v_ms = np.clip(v_ms, 0, VEL_MAX_HUMANA_MS)
     
     result = fit_velocidade_aceleracao(v_ms, a_ms2)
     
@@ -340,71 +385,6 @@ def calcular_asp_metrics(df):
         result['num_sprints'] = len(df_sprints)
     
     return result
-
-# ==================== FUNÇÕES DE VALIDAÇÃO ====================
-
-def validar_dados_gps(df):
-    """Valida a integridade e consistência dos dados GPS"""
-    validacao = {'alertas': [], 'valores': {}}
-    
-    if len(df) > 1:
-        sample_rates = df['Seconds'].diff().dropna()
-        taxa_media = sample_rates.median()
-        taxa_std = sample_rates.std()
-        validacao['valores']['taxa_amostragem_media'] = taxa_media
-        validacao['valores']['taxa_amostragem_std'] = taxa_std
-        validacao['valores']['taxa_amostragem_cv'] = taxa_std / taxa_media if taxa_media > 0 else 0
-        
-        if validacao['valores']['taxa_amostragem_cv'] > 0.1:
-            validacao['alertas'].append(f"Alta variabilidade na taxa de amostragem (CV={validacao['valores']['taxa_amostragem_cv']:.2f})")
-    
-    # Velocidade em m/s, converter para km/h apenas para validação
-    v_ms = df['Velocity'].values
-    v_max_kmh = v_ms.max() * 3.6
-    
-    validacao['valores']['velocidade_max_kmh'] = v_max_kmh
-    validacao['valores']['velocidade_media_kmh'] = np.mean(v_ms) * 3.6
-    
-    if v_max_kmh > 36:
-        validacao['alertas'].append(f"Velocidade máxima ({v_max_kmh:.1f} km/h) acima do limite fisiológico (36 km/h)")
-    elif v_max_kmh < 20:
-        validacao['alertas'].append(f"Velocidade máxima ({v_max_kmh:.1f} km/h) abaixo do esperado")
-    
-    a_ms2 = df['Acceleration'].values
-    a_max = a_ms2.max()
-    a_min = a_ms2.min()
-    
-    validacao['valores']['aceleracao_max'] = a_max
-    validacao['valores']['desaceleracao_max'] = a_min
-    
-    if a_max > 6:
-        validacao['alertas'].append(f"Aceleração máxima ({a_max:.2f} m/s²) acima do limite fisiológico (6 m/s²)")
-    if a_min < -8:
-        validacao['alertas'].append(f"Desaceleração máxima ({a_min:.2f} m/s²) abaixo do limite fisiológico (-8 m/s²)")
-    
-    if 'Odometer' in df.columns:
-        odometer_diff = df['Odometer'].diff().dropna()
-        odometer_negativos = (odometer_diff < -0.1).sum()
-        validacao['valores']['odometer_negativos'] = odometer_negativos
-        
-        if odometer_negativos > 0:
-            validacao['alertas'].append(f"{odometer_negativos} leituras do odômetro com valores decrescentes")
-        
-        distancia_odometer = df['Odometer'].max() - df['Odometer'].min()
-        if len(df) > 1:
-            sample_rate = df['Seconds'].diff().median()
-            distancia_estimada = np.sum(v_ms * sample_rate)
-        else:
-            distancia_estimada = 0
-        
-        validacao['valores']['distancia_odometer'] = distancia_odometer
-        validacao['valores']['distancia_estimada'] = distancia_estimada
-        validacao['valores']['diferenca_distancia'] = abs(distancia_odometer - distancia_estimada)
-        
-        if distancia_odometer > 0 and validacao['valores']['diferenca_distancia'] / distancia_odometer > 0.05:
-            validacao['alertas'].append(f"Diferença entre odômetro e distância estimada: {validacao['valores']['diferenca_distancia']:.0f}m")
-    
-    return validacao
 
 # ==================== FUNÇÕES PARA TRIMP ====================
 
@@ -442,14 +422,15 @@ def calcular_trimp_edwards(df, fc_max=None):
 
 # ==================== FUNÇÕES PARA SPRINTS ====================
 
-def detectar_sprints(df, limiar_velocidade=25, duracao_minima=1):
+def detectar_sprints(df, limiar_velocidade_kmh=25, duracao_minima=1):
     """
     Detecta sprints baseado em limiar de velocidade e duração mínima
-    limiar_velocidade em km/h, convertido para m/s internamente
+    limiar_velocidade_kmh: valor em km/h, convertido internamente para m/s
     """
-    # Dados originais em m/s
+    # Converter limiar de km/h para m/s
+    limiar_ms = limiar_velocidade_kmh / 3.6
+    
     v_ms = df['Velocity'].values
-    limiar_ms = limiar_velocidade / 3.6
     
     acima_limiar = v_ms >= limiar_ms
     
@@ -483,8 +464,8 @@ def detectar_sprints(df, limiar_velocidade=25, duracao_minima=1):
                     'inicio_time': df['Seconds'].iloc[inicio],
                     'fim_time': df['Seconds'].iloc[fim],
                     'duracao': duracao,
-                    'vel_max': np.max(velocidades_sprint) * 3.6,
-                    'vel_media': np.mean(velocidades_sprint) * 3.6,
+                    'vel_max': np.max(velocidades_sprint) * 3.6,  # Converter para km/h
+                    'vel_media': np.mean(velocidades_sprint) * 3.6,  # Converter para km/h
                     'acel_max': np.max(aceleracoes_sprint),
                     'distancia': distancia
                 })
@@ -495,10 +476,10 @@ def detectar_sprints(df, limiar_velocidade=25, duracao_minima=1):
     
     return sprints
 
-def detectar_esforcos_alta_intensidade(df, limiar_velocidade=20, duracao_minima=3):
+def detectar_esforcos_alta_intensidade(df, limiar_velocidade_kmh=20, duracao_minima=3):
     """Detecta esforços de alta intensidade"""
+    limiar_ms = limiar_velocidade_kmh / 3.6
     v_ms = df['Velocity'].values
-    limiar_ms = limiar_velocidade / 3.6
     
     acima_limiar = v_ms >= limiar_ms
     
@@ -855,13 +836,22 @@ def load_data(uploaded_file):
                     df['Timestamp'] = pd.to_datetime(df['Timestamp'], dayfirst=True, errors='coerce')
             start_datetime = df['Timestamp'].min() if not df['Timestamp'].isna().all() else None
         
+        # Remover dados inválidos
         df = df.dropna(subset=['Latitude', 'Longitude', 'Velocity', 'HeartRate'])
-        df['arquivo_origem'] = uploaded_file.name
-        df['start_datetime'] = start_datetime
-        if start_datetime is not None:
-            df['Horario'] = df['Seconds'].apply(lambda x: seconds_to_time_str(x, start_datetime))
         
-        return df, atleta, periodo, start_datetime
+        # VALIDAÇÃO E FILTRAGEM DOS DADOS (limites fisiológicos)
+        df_filtrado, alertas, stats_remocao = validar_e_filtrar_dados(df)
+        
+        df_filtrado['arquivo_origem'] = uploaded_file.name
+        df_filtrado['start_datetime'] = start_datetime
+        if start_datetime is not None:
+            df_filtrado['Horario'] = df_filtrado['Seconds'].apply(lambda x: seconds_to_time_str(x, start_datetime))
+        
+        # Mostrar alertas se houver
+        for alerta in alertas:
+            st.warning(alerta)
+        
+        return df_filtrado, atleta, periodo, start_datetime
     except Exception as e:
         st.error(f"Erro ao carregar arquivo {uploaded_file.name}: {e}")
         return None, None, None, None
@@ -936,8 +926,8 @@ def gerar_relatorio_pdf(dfs_por_periodo, distancias_por_periodo, tempos_por_peri
     story.append(Spacer(1, 20))
     
     story.append(Paragraph("Sprints e Esforços de Alta Intensidade", styles['Heading2']))
-    sprints = detectar_sprints(df_metricas, limiar_velocidade=25, duracao_minima=1)
-    esforcos_ai = detectar_esforcos_alta_intensidade(df_metricas, limiar_velocidade=20, duracao_minima=3)
+    sprints = detectar_sprints(df_metricas, limiar_velocidade_kmh=25, duracao_minima=1)
+    esforcos_ai = detectar_esforcos_alta_intensidade(df_metricas, limiar_velocidade_kmh=20, duracao_minima=3)
     
     sprint_data = [
         ['Métrica', 'Valor'],
@@ -994,7 +984,7 @@ uploaded_files = st.sidebar.file_uploader("Escolha os arquivos CSV", type=['csv'
 
 if uploaded_files:
     if 'dados_carregados' not in st.session_state or st.session_state.get('arquivos_anteriores') != [f.name for f in uploaded_files]:
-        with st.spinner("Carregando arquivos..."):
+        with st.spinner("Carregando e validando arquivos..."):
             all_data = []
             all_atletas = []
             all_periodos = []
@@ -1016,6 +1006,11 @@ if uploaded_files:
                 st.session_state.reference_datetime = all_start_datetimes[0] if all_start_datetimes[0] is not None else None
                 st.session_state.arquivos_anteriores = [f.name for f in uploaded_files]
                 st.session_state.dados_prontos = True
+                
+                # Mostrar resumo da validação
+                st.markdown('<div class="info-card">', unsafe_allow_html=True)
+                st.success(f"✅ {len(all_data)} arquivos carregados com sucesso. Dados validados com limites fisiológicos (velocidade máxima: {VEL_MAX_HUMANA_MS*3.6:.0f} km/h, aceleração: {ACEL_MAX_HUMANA_MS2:.0f} m/s²)")
+                st.markdown('</div>', unsafe_allow_html=True)
             else:
                 st.session_state.dados_prontos = False
                 st.error("❌ Nenhum arquivo válido processado.")
@@ -1167,9 +1162,9 @@ if uploaded_files:
             st.session_state.periodos_config.pop(i)
             st.rerun()
         
-        # 4. Filtros - Zonas de Velocidade Customizáveis (com 1 casa decimal)
+        # 4. Filtros - Zonas de Velocidade Customizáveis (em km/h)
         st.sidebar.markdown("---")
-        st.sidebar.header("⚡ 4. Zonas de Velocidade")
+        st.sidebar.header("⚡ 4. Zonas de Velocidade (km/h)")
         
         st.sidebar.markdown('<div class="zone-selector">', unsafe_allow_html=True)
         
@@ -1301,6 +1296,7 @@ if uploaded_files:
                     for df, atleta, periodo_orig, start_dt in zip(selected_data, selected_atletas, selected_periodos_orig, selected_start_datetimes):
                         time_filter = (df['Seconds'] >= start_time) & (df['Seconds'] <= end_time)
                         
+                        # Filtrar por zonas de velocidade (converter km/h para m/s)
                         speed_filter = pd.Series([False] * len(df))
                         for zona in zonas_selecionadas:
                             min_v_kmh, max_v_kmh = st.session_state.velocidade_zonas[zona]
@@ -1338,6 +1334,7 @@ if uploaded_files:
                     for df, atleta, periodo_orig, start_dt in zip(selected_data, selected_atletas, selected_periodos_orig, selected_start_datetimes):
                         time_filter = (df['Seconds'] >= max(start_time, periodo_inicio)) & (df['Seconds'] <= min(end_time, periodo_fim))
                         
+                        # Filtrar por zonas de velocidade (converter km/h para m/s)
                         speed_filter = pd.Series([False] * len(df))
                         for zona in zonas_selecionadas:
                             min_v_kmh, max_v_kmh = st.session_state.velocidade_zonas[zona]
@@ -1402,7 +1399,7 @@ if uploaded_files:
                     )
             st.markdown("---")
             
-            # Métricas principais
+            # Métricas principais (velocidades em km/h)
             st.markdown("### 📊 Métricas de Desempenho por Período")
             
             for periodo_nome, df_periodo in dfs_por_periodo.items():
@@ -1506,7 +1503,7 @@ if uploaded_files:
                                       title=f"Trajetória de {selected_atletas[0]} - {periodo_mapa} - {st.session_state.get('nome_estadio', 'Campo')}")
                 st.plotly_chart(fig_map, use_container_width=True)
             
-            # TAB 2: ANÁLISE POR ZONAS (COMPLETA COM TODAS AS VISUALIZAÇÕES)
+            # TAB 2: ANÁLISE POR ZONAS
             with tab2:
                 st.subheader("📐 Análise Tática por Zonas do Campo")
                 st.markdown(f"Campo com dimensões oficiais: **{CAMPO_COMPRIMENTO}m x {CAMPO_LARGURA}m**")
@@ -1583,7 +1580,7 @@ if uploaded_files:
                 total_vel_peso = (zona_metrics['Vel_Média'] * zona_metrics['Contagem']).sum()
                 zona_metrics['Intensidade (%)'] = ((zona_metrics['Vel_Média'] * zona_metrics['Contagem']) / total_vel_peso * 100).round(1) if total_vel_peso > 0 else 0
                 
-                # Converter velocidades para km/h para exibição
+                # Converter velocidades para km/h
                 zona_metrics['Vel_Média'] = zona_metrics['Vel_Média'] * 3.6
                 zona_metrics['Vel_Máx'] = zona_metrics['Vel_Máx'] * 3.6
                 
@@ -1842,7 +1839,7 @@ if uploaded_files:
                         st.info("📊 **Tratamento Estatístico Aplicado:** Filtro IQR para remoção de outliers, regressão robusta RANSAC, limites fisiológicos (a₀: 1.5-6.0 m/s², v₀: 6.0-13.0 m/s, Pₘₐₓ: 4-20 W/kg)")
                         st.markdown('</div>', unsafe_allow_html=True)
             
-            # TAB 4: PERFORMANCE CARDÍACA (COMPLETA)
+            # TAB 4: PERFORMANCE CARDÍACA
             with tab4:
                 st.subheader("❤️ Análise de Performance Cardíaca")
                 
@@ -2003,7 +2000,6 @@ if uploaded_files:
                     </div>
                     """, unsafe_allow_html=True)
                 
-                # Exportar dados de TRIMP
                 csv_trimp = zonas_trimp.to_csv(index=False)
                 st.download_button("📥 Exportar dados de TRIMP", csv_trimp, f"trimp_{selected_atletas[0]}_{periodo_fc}.csv")
             
@@ -2015,43 +2011,22 @@ if uploaded_files:
                 df_sprint = dfs_por_periodo[periodo_sprint]
                 start_dt_sprint = df_sprint['start_datetime'].iloc[0] if len(df_sprint) > 0 else None
                 
-                # Validar dados
-                st.markdown("### 📊 Validação de Dados")
-                validacao = validar_dados_gps(df_sprint)
+                # Exibir limites fisiológicos aplicados
+                st.markdown('<div class="info-card">', unsafe_allow_html=True)
+                st.caption(f"📊 Dados validados com limites fisiológicos: velocidade máxima {VEL_MAX_HUMANA_MS*3.6:.0f} km/h, aceleração {ACEL_MAX_HUMANA_MS2:.0f} m/s²")
+                st.markdown('</div>', unsafe_allow_html=True)
                 
-                if validacao['alertas']:
-                    for alerta in validacao['alertas']:
-                        st.warning(f"⚠️ {alerta}")
-                
-                col_val1, col_val2, col_val3 = st.columns(3)
-                with col_val1:
-                    st.metric("Velocidade Máxima", f"{validacao['valores']['velocidade_max_kmh']:.1f} km/h")
-                    st.caption("Limite fisiológico: ~36 km/h")
-                with col_val2:
-                    st.metric("Aceleração Máxima", f"{validacao['valores']['aceleracao_max']:.2f} m/s²")
-                    st.caption("Limite fisiológico: ~6 m/s²")
-                with col_val3:
-                    st.metric("Desaceleração Máxima", f"{validacao['valores']['desaceleracao_max']:.2f} m/s²")
-                    st.caption("Limite fisiológico: ~-8 m/s²")
-                
-                st.markdown("---")
                 st.markdown("### ⚙️ Parâmetros de Detecção")
                 
                 col_param1, col_param2 = st.columns(2)
                 with col_param1:
-                    limiar_sprint = st.number_input("Limiar para Sprint (km/h)", value=25.0, step=0.5, min_value=10.0, max_value=40.0, key="limiar_sprint", format="%.1f")
+                    limiar_sprint = st.number_input("Limiar para Sprint (km/h)", value=25.0, step=0.5, min_value=10.0, max_value=VEL_MAX_HUMANA_MS*3.6, key="limiar_sprint", format="%.1f")
                     duracao_min_sprint = st.number_input("Duração mínima do Sprint (s)", value=1.0, step=0.5, min_value=0.5, key="duracao_sprint", format="%.1f")
                     st.caption(f"Corresponde a {limiar_sprint/3.6:.2f} m/s")
                 with col_param2:
-                    limiar_ai = st.number_input("Limiar para Alta Intensidade (km/h)", value=20.0, step=0.5, min_value=10.0, max_value=35.0, key="limiar_ai", format="%.1f")
+                    limiar_ai = st.number_input("Limiar para Alta Intensidade (km/h)", value=20.0, step=0.5, min_value=10.0, max_value=VEL_MAX_HUMANA_MS*3.6, key="limiar_ai", format="%.1f")
                     duracao_min_ai = st.number_input("Duração mínima AI (s)", value=3.0, step=0.5, min_value=1.0, key="duracao_ai", format="%.1f")
                     st.caption(f"Corresponde a {limiar_ai/3.6:.2f} m/s")
-                
-                v_max_kmh = validacao['valores']['velocidade_max_kmh']
-                if limiar_sprint > v_max_kmh:
-                    st.warning(f"⚠️ O limiar de sprint ({limiar_sprint:.1f} km/h) é maior que a velocidade máxima do atleta ({v_max_kmh:.1f} km/h). Nenhum sprint será detectado.")
-                if limiar_ai > v_max_kmh:
-                    st.warning(f"⚠️ O limiar de alta intensidade ({limiar_ai:.1f} km/h) é maior que a velocidade máxima do atleta ({v_max_kmh:.1f} km/h). Nenhum esforço será detectado.")
                 
                 with st.spinner("Detectando sprints e esforços de alta intensidade..."):
                     sprints = detectar_sprints(df_sprint, limiar_sprint, duracao_min_sprint)
@@ -2064,15 +2039,6 @@ if uploaded_files:
                 
                 dist_sprints = sum(s['distancia'] for s in sprints)
                 dist_ai = sum(e['distancia'] for e in esforcos_ai)
-                
-                # Calcular tempo total acima dos limiares
-                v_ms = df_sprint['Velocity'].values
-                if len(df_sprint) > 1:
-                    sample_rate = df_sprint['Seconds'].diff().median()
-                else:
-                    sample_rate = 1
-                tempo_acima_ai = np.sum(v_ms >= (limiar_ai/3.6)) * sample_rate
-                tempo_acima_sprint = np.sum(v_ms >= (limiar_sprint/3.6)) * sample_rate
                 
                 with col_s1:
                     st.markdown(f"""
@@ -2107,19 +2073,6 @@ if uploaded_files:
                         <div class="metric-label">Distância em AI (m)</div>
                     </div>
                     """, unsafe_allow_html=True)
-                
-                st.markdown("---")
-                col_t1, col_t2 = st.columns(2)
-                with col_t1:
-                    st.metric("Tempo acima do limiar AI", f"{tempo_acima_ai:.1f}s")
-                with col_t2:
-                    st.metric("Tempo acima do limiar Sprint", f"{tempo_acima_sprint:.1f}s")
-                
-                tempo_total = tempos_por_periodo.get(periodo_sprint, 0)
-                if tempo_acima_ai > 0 and tempo_total > 0:
-                    pct_ai = (tempo_acima_ai / tempo_total) * 100
-                    if pct_ai > 50:
-                        st.warning(f"⚠️ O atleta passou {pct_ai:.1f}% do tempo em alta intensidade. Verifique se os limiares estão apropriados.")
                 
                 if sprints:
                     st.markdown("### 📋 Detalhamento dos Sprints")
@@ -2204,10 +2157,10 @@ if uploaded_files:
                 st.markdown("### ⚙️ Parâmetros de Detecção")
                 col_acc1, col_acc2, col_acc3 = st.columns(3)
                 with col_acc1:
-                    limiar_aceleracao = st.number_input("Limiar para Aceleração (m/s²)", value=2.5, step=0.1, min_value=1.0, max_value=8.0, key="limiar_aceleracao", format="%.1f")
+                    limiar_aceleracao = st.number_input("Limiar para Aceleração (m/s²)", value=2.5, step=0.1, min_value=1.0, max_value=ACEL_MAX_HUMANA_MS2, key="limiar_aceleracao", format="%.1f")
                     st.caption("Acelerações > este valor")
                 with col_acc2:
-                    limiar_desaceleracao = st.number_input("Limiar para Desaceleração (m/s²)", value=-2.5, step=0.1, min_value=-8.0, max_value=-1.0, key="limiar_desaceleracao", format="%.1f")
+                    limiar_desaceleracao = st.number_input("Limiar para Desaceleração (m/s²)", value=-2.5, step=0.1, min_value=DESACEL_MAX_HUMANA_MS2, max_value=-1.0, key="limiar_desaceleracao", format="%.1f")
                     st.caption("Desacelerações < este valor")
                 with col_acc3:
                     angulo_limiar = st.number_input("Ângulo para Mudança Direção (°)", value=45, step=5, min_value=15, max_value=120, key="angulo_limiar")
@@ -2512,6 +2465,6 @@ else:
         <h2>⚽ ScoutLab - Plataforma de Análise de Performance</h2>
         <p style="font-size: 1.2rem; color: #aaa;">Carregue os arquivos CSV na barra lateral para iniciar a análise</p>
         <p style="margin-top: 30px;">📊 Análise de posicionamento | ⚡ Perfil de aceleração (ASP corrigido) | ❤️ Monitoramento cardíaco | 🎯 Zonas de intensidade | 🚀 Detecção de sprints | 🔄 Acelerações/Desacelerações</p>
-        <p style="margin-top: 15px; font-size: 0.9rem; color: #00d2ff;">✅ Tratamento estatístico robusto com RANSAC e limites fisiológicos | ✅ Unidades corretas (velocidade em km/h na exibição)</p>
+        <p style="margin-top: 15px; font-size: 0.9rem; color: #00d2ff;">✅ Dados validados com limites fisiológicos: velocidade máxima 46.8 km/h, aceleração máxima 6 m/s²</p>
     </div>
     """, unsafe_allow_html=True)
