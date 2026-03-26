@@ -198,6 +198,102 @@ def validar_e_filtrar_dados(df):
     
     return df_filtrado, alertas
 
+# ==================== FUNÇÕES DE EXTRAÇÃO DE DADOS DO CABEÇALHO ====================
+
+def extract_athlete_from_line8(content):
+    """
+    Extrai o nome do atleta da linha 8 do arquivo CSV.
+    Formato esperado: # Athlete: "NOME" ou # Athlete: NOME; ou # Athlete: NOME
+    """
+    try:
+        lines = content.split('\n')
+        if len(lines) >= 8:
+            line8 = lines[7]  # Linha 8 (índice 7)
+            
+            if '# Athlete:' in line8 or '#Atleta:' in line8:
+                # Encontra a posição após os dois pontos
+                if ':' in line8:
+                    after_colon = line8.split(':', 1)[1].strip()
+                    
+                    # Tenta extrair entre aspas primeiro
+                    match_quotes = re.search(r'"([^"]*)"', after_colon)
+                    if match_quotes:
+                        athlete = match_quotes.group(1).strip()
+                        if athlete:
+                            return athlete
+                    
+                    # Se não houver aspas, pega até o primeiro ';' ou fim da linha
+                    if ';' in after_colon:
+                        athlete = after_colon.split(';')[0].strip()
+                    else:
+                        athlete = after_colon.strip()
+                    
+                    # Remove caracteres indesejados
+                    athlete = athlete.strip('"').strip("'").strip()
+                    
+                    # Se o nome estiver vazio ou for apenas ';', retorna None
+                    if athlete and athlete != '' and not athlete.startswith('#') and athlete != ';':
+                        return athlete
+        return None
+    except Exception:
+        return None
+
+
+def extract_period_from_content(content):
+    """
+    Extrai o período do arquivo CSV.
+    Formato esperado: # Period: "NOME" ou # Period: NOME; ou # Period: NOME
+    """
+    try:
+        lines = content.split('\n')
+        for line in lines[:15]:
+            if '# Period:' in line or '# Periodo:' in line or '#Período:' in line:
+                if ':' in line:
+                    after_colon = line.split(':', 1)[1].strip()
+                    
+                    # Tenta extrair entre aspas
+                    match_quotes = re.search(r'"([^"]*)"', after_colon)
+                    if match_quotes:
+                        periodo = match_quotes.group(1).strip()
+                        if periodo:
+                            return periodo
+                    
+                    # Se não houver aspas, pega até o primeiro ';' ou fim da linha
+                    if ';' in after_colon:
+                        periodo = after_colon.split(';')[0].strip()
+                    else:
+                        periodo = after_colon.strip()
+                    
+                    periodo = periodo.strip('"').strip("'").strip()
+                    
+                    if periodo and periodo != '' and not periodo.startswith('#') and periodo != ';':
+                        return periodo
+        return "Não identificado"
+    except Exception:
+        return "Não identificado"
+
+
+def format_athlete_name(athlete):
+    """
+    Formata o nome do atleta para exibição consistente.
+    Ex: "L.SASHA" -> "L. SASHA"
+        "L.SASHA;" -> "L. SASHA"
+        "L. SASHA" -> "L. SASHA"
+    """
+    if not athlete:
+        return athlete
+    
+    # Remove caracteres especiais no final
+    athlete = athlete.rstrip(';').strip()
+    
+    # Adiciona espaço após ponto se não houver
+    if '.' in athlete and ' ' not in athlete:
+        parts = athlete.split('.')
+        if len(parts) > 1:
+            athlete = parts[0] + '. ' + ''.join(parts[1:])
+    
+    return athlete
+
 # ==================== FUNÇÃO DO PERFIL ACELERAÇÃO-VELOCIDADE ====================
 
 def fit_velocidade_aceleracao(velocidades, aceleracoes):
@@ -541,39 +637,23 @@ def format_duration(seconds):
     secs = int(seconds % 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
-def extract_athlete_from_line8(content):
-    try:
-        lines = content.split('\n')
-        if len(lines) >= 8:
-            line8 = lines[7]
-            if '# Athlete:' in line8:
-                match = re.search(r'"([^"]*)"', line8)
-                if match:
-                    return match.group(1).strip()
-        return None
-    except Exception:
-        return None
-
 @st.cache_data
 def load_data(uploaded_file):
     try:
         content = uploaded_file.getvalue().decode('utf-8')
-        atleta = extract_athlete_from_line8(content)
-        if atleta is None or atleta == "":
-            atleta = "Não identificado"
         
-        periodo = "Não identificado"
-        lines = content.split('\n')
-        for line in lines[:15]:
-            if '# Period:' in line or '# Periodo:' in line:
-                try:
-                    match = re.search(r'"([^"]*)"', line)
-                    periodo = match.group(1).strip() if match else line.split(':')[1].strip().strip('"').strip(';')
-                except:
-                    periodo = "Não identificado"
-                break
+        # Extrai e formata o nome do atleta
+        atleta_raw = extract_athlete_from_line8(content)
+        if atleta_raw is None or atleta_raw == "":
+            atleta = "Não identificado"
+        else:
+            atleta = format_athlete_name(atleta_raw)
+        
+        # Extrai o período
+        periodo = extract_period_from_content(content)
         
         data_start = 0
+        lines = content.split('\n')
         for i, line in enumerate(lines):
             if not line.startswith('#') and 'Timestamp' in line:
                 data_start = i
@@ -959,16 +1039,37 @@ if uploaded_files:
         st.sidebar.header("🏅 6. Selecionar Atleta(s)")
         
         atleta_options = []
-        for atleta, periodo in zip(st.session_state.atletas, st.session_state.periodos_orig):
-            display_name = f"{atleta} - {periodo}" if periodo != "Não identificado" else atleta
-            atleta_options.append(display_name)
+        valid_indices = []
         
-        selected_indices = st.sidebar.multiselect(
-            "Escolha os atletas",
-            options=range(len(atleta_options)),
-            format_func=lambda x: atleta_options[x],
-            default=[0] if len(atleta_options) > 0 else []
-        )
+        for i, (atleta, periodo) in enumerate(zip(st.session_state.atletas, st.session_state.periodos_orig)):
+            # Validar se o atleta é válido
+            if atleta and atleta != "Não identificado" and not atleta.startswith('#'):
+                display_name = f"{atleta} - {periodo}" if periodo and periodo != "Não identificado" and not periodo.startswith('#') else atleta
+                atleta_options.append(display_name)
+                valid_indices.append(i)
+            elif periodo and periodo != "Não identificado" and not periodo.startswith('#'):
+                # Se o período é válido mas o atleta não
+                display_name = f"Atleta {i+1} - {periodo}"
+                atleta_options.append(display_name)
+                valid_indices.append(i)
+            else:
+                # Fallback para nomes genéricos
+                display_name = f"Atleta {i+1}"
+                atleta_options.append(display_name)
+                valid_indices.append(i)
+        
+        if atleta_options:
+            selected_indices = st.sidebar.multiselect(
+                "Escolha os atletas",
+                options=range(len(atleta_options)),
+                format_func=lambda x: atleta_options[x],
+                default=[0] if len(atleta_options) > 0 else []
+            )
+            
+            # Mapear de volta para os índices originais
+            selected_original_indices = [valid_indices[i] for i in selected_indices]
+        else:
+            selected_original_indices = []
         
         # 7. Opções de Visualização
         st.sidebar.markdown("---")
@@ -994,14 +1095,14 @@ if uploaded_files:
         
         # ==================== PROCESSAMENTO DAS ANÁLISES ====================
         if processar:
-            if not selected_indices:
+            if not selected_original_indices:
                 st.warning("⚠️ Selecione pelo menos um atleta para análise.")
                 st.stop()
             
-            selected_atletas = [st.session_state.atletas[i] for i in selected_indices]
-            selected_data = [st.session_state.dados_carregados[i] for i in selected_indices]
-            selected_periodos_orig = [st.session_state.periodos_orig[i] for i in selected_indices]
-            selected_start_datetimes = [st.session_state.start_datetimes[i] for i in selected_indices]
+            selected_atletas = [st.session_state.atletas[i] for i in selected_original_indices]
+            selected_data = [st.session_state.dados_carregados[i] for i in selected_original_indices]
+            selected_periodos_orig = [st.session_state.periodos_orig[i] for i in selected_original_indices]
+            selected_start_datetimes = [st.session_state.start_datetimes[i] for i in selected_original_indices]
             
             dfs_por_periodo = {}
             df_combinado_total = pd.DataFrame()
