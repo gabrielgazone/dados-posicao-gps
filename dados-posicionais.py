@@ -175,9 +175,8 @@ def fit_velocidade_aceleracao(velocidades, aceleracoes):
     Onde:
     - a0: aceleração máxima (intercept)
     - v0: velocidade máxima teórica (onde a aceleração = 0)
-    - A inclinação deve ser negativa (a0/v0)
     
-    Parâmetros fisiológicos esperados:
+    Parâmetros fisiológicos esperados (em m/s e m/s²):
     - a0: 2-5 m/s² (aceleração máxima)
     - v0: 8-12 m/s (28.8-43.2 km/h)
     - Pmax = a0 * v0 / 4: 4-15 W/kg
@@ -190,7 +189,7 @@ def fit_velocidade_aceleracao(velocidades, aceleracoes):
     if len(v_clean) < 10:
         return None
     
-    # Filtrar outliers usando IQR (intervalo interquartil)
+    # Filtrar outliers usando IQR
     q1_a, q3_a = np.percentile(a_clean, [25, 75])
     iqr_a = q3_a - q1_a
     lower_bound_a = q1_a - 1.5 * iqr_a
@@ -212,17 +211,15 @@ def fit_velocidade_aceleracao(velocidades, aceleracoes):
         a_filtered = a_clean
     
     try:
-        # Usar regressão linear robusta com RANSAC para eliminar outliers
+        # Usar regressão linear robusta com RANSAC
         X = v_filtered.reshape(-1, 1)
         y = a_filtered
         
-        # Padronizar os dados
         scaler_X = StandardScaler()
         scaler_y = StandardScaler()
         X_scaled = scaler_X.fit_transform(X)
         y_scaled = scaler_y.fit_transform(y.reshape(-1, 1)).ravel()
         
-        # RANSAC com parâmetros conservadores
         ransac = RANSACRegressor(
             min_samples=0.5,
             residual_threshold=np.std(y_scaled) * 1.5,
@@ -231,54 +228,44 @@ def fit_velocidade_aceleracao(velocidades, aceleracoes):
         )
         ransac.fit(X_scaled, y_scaled)
         
-        # Obter coeficientes na escala original
         slope_scaled = ransac.estimator_.coef_[0]
         intercept_scaled = ransac.estimator_.intercept_
         
-        # Converter de volta para escala original
         slope = slope_scaled * (scaler_y.scale_ / scaler_X.scale_)
         intercept = scaler_y.mean_ + intercept_scaled * scaler_y.scale_ - slope * scaler_X.mean_
         
-        # Calcular R² usando a regressão RANSAC
         y_pred = slope * v_filtered + intercept
         ss_res = np.sum((a_filtered - y_pred) ** 2)
         ss_tot = np.sum((a_filtered - np.mean(a_filtered)) ** 2)
         r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
         
         # Modelo físico: a = a0 - (a0/v0) * v
-        # slope = -a0/v0, intercept = a0
         a0 = intercept
         
-        # Garantir que a0 seja positivo e fisiológico
+        # Garantir que a0 seja positivo e fisiológico (1.5-6.0 m/s²)
         if a0 <= 0 or a0 > 8:
-            # Se a0 for inválido, usar o valor máximo de aceleração observado
             a0 = np.percentile(a_filtered[a_filtered > 0], 85) if np.any(a_filtered > 0) else 2.5
             a0 = np.clip(a0, 1.5, 6.0)
         
-        # v0 = -a0 / slope (slope deve ser negativo)
+        # Calcular v0
         if slope < 0:
             v0 = -a0 / slope
         else:
-            # Se a inclinação for positiva (fisicamente inválida), estimar v0 baseado nos dados
             a_positivas = a_filtered[a_filtered > 0.1]
             v_correspondentes = v_filtered[a_filtered > 0.1]
             if len(v_correspondentes) > 0:
                 v0 = np.percentile(v_correspondentes, 90) * 1.2
             else:
                 v0 = np.max(v_filtered) * 1.1
-            
             v0 = np.clip(v0, 6.0, 13.0)
             slope = -a0 / v0
         
-        # Limitar v0 a valores fisiológicos
+        # Limitar v0 a valores fisiológicos (6-13 m/s = 21.6-46.8 km/h)
         v0 = np.clip(v0, 6.0, 13.0)
         
-        # Calcular potência máxima (Pmax = a0 * v0 / 4)
+        # Potência máxima
         p_max = a0 * v0 / 4
         p_max = np.clip(p_max, 4.0, 20.0)
-        
-        # Velocidade máxima observada
-        v_max = np.max(v_filtered)
         
         return {
             'a0': float(a0),
@@ -286,13 +273,12 @@ def fit_velocidade_aceleracao(velocidades, aceleracoes):
             'slope': float(slope),
             'intercept': float(intercept),
             'r2': float(r2),
-            'v_max': float(v_max),
+            'v_max': float(np.max(v_filtered)),
             'p_max': float(p_max),
-            'n_points': len(v_filtered),
-            'se': float(np.sqrt(ss_res / (len(v_filtered) - 2)) if len(v_filtered) > 2 else 0)
+            'n_points': len(v_filtered)
         }
-    except Exception as e:
-        # Fallback para método alternativo
+    except Exception:
+        # Fallback com regressão linear simples
         try:
             z_scores = np.abs(stats.zscore(a_clean))
             mask_z = z_scores < 2.5
@@ -326,8 +312,7 @@ def fit_velocidade_aceleracao(velocidades, aceleracoes):
                     'r2': float(r2),
                     'v_max': float(np.max(v_z)),
                     'p_max': float(p_max),
-                    'n_points': len(v_z),
-                    'se': float(std_err)
+                    'n_points': len(v_z)
                 }
         except:
             pass
@@ -340,12 +325,12 @@ def calcular_asp_metrics(df):
     if len(df_sprints) < 10:
         return None
     
+    # Velocidade já está em m/s (dados do GPS)
     v_ms = df_sprints['Velocity'].values
     a_ms2 = df_sprints['Acceleration'].values
     
-    # Limitar velocidade máxima a valores fisiológicos
-    v_max_fisio = 13.0
-    v_ms = np.clip(v_ms, 0, v_max_fisio)
+    # Limitar velocidade a valores fisiológicos (máximo 13 m/s = 46.8 km/h)
+    v_ms = np.clip(v_ms, 0, 13.0)
     
     result = fit_velocidade_aceleracao(v_ms, a_ms2)
     
@@ -356,7 +341,7 @@ def calcular_asp_metrics(df):
     
     return result
 
-# ==================== FUNÇÕES DE VALIDAÇÃO ESTATÍSTICA ====================
+# ==================== FUNÇÕES DE VALIDAÇÃO ====================
 
 def validar_dados_gps(df):
     """Valida a integridade e consistência dos dados GPS"""
@@ -373,6 +358,7 @@ def validar_dados_gps(df):
         if validacao['valores']['taxa_amostragem_cv'] > 0.1:
             validacao['alertas'].append(f"Alta variabilidade na taxa de amostragem (CV={validacao['valores']['taxa_amostragem_cv']:.2f})")
     
+    # Velocidade em m/s, converter para km/h apenas para validação
     v_ms = df['Velocity'].values
     v_max_kmh = v_ms.max() * 3.6
     
@@ -380,9 +366,9 @@ def validar_dados_gps(df):
     validacao['valores']['velocidade_media_kmh'] = np.mean(v_ms) * 3.6
     
     if v_max_kmh > 36:
-        validacao['alertas'].append(f"Velocidade máxima ({v_max_kmh:.1f} km/h) acima do limite fisiológico típico (36 km/h)")
+        validacao['alertas'].append(f"Velocidade máxima ({v_max_kmh:.1f} km/h) acima do limite fisiológico (36 km/h)")
     elif v_max_kmh < 20:
-        validacao['alertas'].append(f"Velocidade máxima ({v_max_kmh:.1f} km/h) abaixo do esperado para um atleta de futebol")
+        validacao['alertas'].append(f"Velocidade máxima ({v_max_kmh:.1f} km/h) abaixo do esperado")
     
     a_ms2 = df['Acceleration'].values
     a_max = a_ms2.max()
@@ -392,9 +378,9 @@ def validar_dados_gps(df):
     validacao['valores']['desaceleracao_max'] = a_min
     
     if a_max > 6:
-        validacao['alertas'].append(f"Aceleração máxima ({a_max:.2f} m/s²) acima do limite fisiológico típico (6 m/s²)")
+        validacao['alertas'].append(f"Aceleração máxima ({a_max:.2f} m/s²) acima do limite fisiológico (6 m/s²)")
     if a_min < -8:
-        validacao['alertas'].append(f"Desaceleração máxima ({a_min:.2f} m/s²) abaixo do limite fisiológico típico (-8 m/s²)")
+        validacao['alertas'].append(f"Desaceleração máxima ({a_min:.2f} m/s²) abaixo do limite fisiológico (-8 m/s²)")
     
     if 'Odometer' in df.columns:
         odometer_diff = df['Odometer'].diff().dropna()
@@ -402,12 +388,12 @@ def validar_dados_gps(df):
         validacao['valores']['odometer_negativos'] = odometer_negativos
         
         if odometer_negativos > 0:
-            validacao['alertas'].append(f"{odometer_negativos} leituras do odômetro com valores decrescentes (inconsistência)")
+            validacao['alertas'].append(f"{odometer_negativos} leituras do odômetro com valores decrescentes")
         
         distancia_odometer = df['Odometer'].max() - df['Odometer'].min()
         if len(df) > 1:
-            sample_rates = df['Seconds'].diff().median()
-            distancia_estimada = np.sum(v_ms * sample_rates)
+            sample_rate = df['Seconds'].diff().median()
+            distancia_estimada = np.sum(v_ms * sample_rate)
         else:
             distancia_estimada = 0
         
@@ -457,7 +443,11 @@ def calcular_trimp_edwards(df, fc_max=None):
 # ==================== FUNÇÕES PARA SPRINTS ====================
 
 def detectar_sprints(df, limiar_velocidade=25, duracao_minima=1):
-    """Detecta sprints baseado em limiar de velocidade e duração mínima"""
+    """
+    Detecta sprints baseado em limiar de velocidade e duração mínima
+    limiar_velocidade em km/h, convertido para m/s internamente
+    """
+    # Dados originais em m/s
     v_ms = df['Velocity'].values
     limiar_ms = limiar_velocidade / 3.6
     
@@ -488,7 +478,8 @@ def detectar_sprints(df, limiar_velocidade=25, duracao_minima=1):
                     distancia = velocidade_media_ms * duracao
                 
                 sprints.append({
-                    'inicio_idx': inicio, 'fim_idx': fim,
+                    'inicio_idx': inicio,
+                    'fim_idx': fim,
                     'inicio_time': df['Seconds'].iloc[inicio],
                     'fim_time': df['Seconds'].iloc[fim],
                     'duracao': duracao,
@@ -967,7 +958,7 @@ def gerar_relatorio_pdf(dfs_por_periodo, distancias_por_periodo, tempos_por_peri
     story.append(sprint_table)
     story.append(Spacer(1, 20))
     
-    story.append(Paragraph("Acelerações e Desacelerações", styles['Heading2']))
+    story.append(Paragraph("Acelerações, Desacelerações e Mudanças de Direção", styles['Heading2']))
     aceleracoes = detectar_aceleracoes(df_metricas, limiar_aceleracao=2.5, duracao_minima=0.5)
     desaceleracoes = detectar_desaceleracoes(df_metricas, limiar_desaceleracao=-2.5, duracao_minima=0.5)
     
@@ -1176,7 +1167,7 @@ if uploaded_files:
             st.session_state.periodos_config.pop(i)
             st.rerun()
         
-        # 4. Filtros - Zonas de Velocidade Customizáveis
+        # 4. Filtros - Zonas de Velocidade Customizáveis (com 1 casa decimal)
         st.sidebar.markdown("---")
         st.sidebar.header("⚡ 4. Zonas de Velocidade")
         
@@ -1184,11 +1175,11 @@ if uploaded_files:
         
         if 'velocidade_zonas' not in st.session_state:
             st.session_state.velocidade_zonas = {
-                'Z1 (Caminhada)': (0, 7),
-                'Z2 (Trote)': (7, 15),
-                'Z3 (Corrida Moderada)': (15, 21),
-                'Z4 (Alta Intensidade)': (21, 25),
-                'Z5 (Sprint)': (25, 100)
+                'Z1 (Caminhada)': (0.0, 7.0),
+                'Z2 (Trote)': (7.0, 15.0),
+                'Z3 (Corrida Moderada)': (15.0, 21.0),
+                'Z4 (Alta Intensidade)': (21.0, 25.0),
+                'Z5 (Sprint)': (25.0, 100.0)
             }
         
         st.sidebar.markdown("**Defina os limites das zonas (km/h):**")
@@ -1197,9 +1188,9 @@ if uploaded_files:
         for zona, (min_val, max_val) in st.session_state.velocidade_zonas.items():
             col1, col2 = st.sidebar.columns(2)
             with col1:
-                novo_min = st.number_input(f"{zona} - min", value=float(min_val), step=1.0, key=f"zona_min_{zona}", format="%.0f")
+                novo_min = st.number_input(f"{zona} - min", value=float(min_val), step=0.5, key=f"zona_min_{zona}", format="%.1f")
             with col2:
-                novo_max = st.number_input(f"{zona} - max", value=float(max_val), step=1.0, key=f"zona_max_{zona}", format="%.0f")
+                novo_max = st.number_input(f"{zona} - max", value=float(max_val), step=0.5, key=f"zona_max_{zona}", format="%.1f")
             zonas_editadas[zona] = (novo_min, novo_max)
         
         st.session_state.velocidade_zonas = zonas_editadas
@@ -1470,9 +1461,10 @@ if uploaded_files:
                 "📊 Comparação Esportiva"
             ])
             
-            # TAB 1: Mapa Tático (simplificado por limite de espaço)
+            # TAB 1: MAPA TÁTICO
             with tab1:
                 st.subheader("🗺️ Mapa Tático de Posicionamento")
+                
                 periodo_mapa = st.selectbox("Selecionar período", options=list(dfs_por_periodo.keys()), key="periodo_mapa_select")
                 df_mapa = dfs_por_periodo[periodo_mapa]
                 
@@ -1511,38 +1503,55 @@ if uploaded_files:
                 zoom = 18 if bounds else 15
                 fig_map.update_layout(mapbox=dict(style="open-street-map", center=dict(lat=center_lat, lon=center_lon), zoom=zoom),
                                       height=600, margin=dict(l=0, r=0, t=30, b=0),
-                                      title=f"Trajetória de {selected_atletas[0]} - {periodo_mapa}")
+                                      title=f"Trajetória de {selected_atletas[0]} - {periodo_mapa} - {st.session_state.get('nome_estadio', 'Campo')}")
                 st.plotly_chart(fig_map, use_container_width=True)
             
-            # TAB 2: Análise por Zonas (simplificado)
+            # TAB 2: ANÁLISE POR ZONAS (COMPLETA COM TODAS AS VISUALIZAÇÕES)
             with tab2:
                 st.subheader("📐 Análise Tática por Zonas do Campo")
                 st.markdown(f"Campo com dimensões oficiais: **{CAMPO_COMPRIMENTO}m x {CAMPO_LARGURA}m**")
                 
                 periodo_tatica = st.selectbox("Selecionar período", options=list(dfs_por_periodo.keys()), key="periodo_tatica_select")
                 df_tat = dfs_por_periodo[periodo_tatica]
+                start_dt_tat = df_tat['start_datetime'].iloc[0] if len(df_tat) > 0 else None
+                
+                st.markdown(f"### 📊 Métricas do Período: {periodo_tatica}")
+                col_metric1, col_metric2, col_metric3, col_metric4, col_metric5 = st.columns(5)
+                with col_metric1:
+                    dist = distancias_por_periodo.get(periodo_tatica, 0)
+                    st.metric("Distância", f"{dist:.0f} m")
+                with col_metric2:
+                    st.metric("Velocidade Máxima", f"{df_tat['Velocity'].max() * 3.6:.1f} km/h")
+                with col_metric3:
+                    st.metric("Velocidade Média", f"{df_tat['Velocity'].mean() * 3.6:.1f} km/h")
+                with col_metric4:
+                    st.metric("FC Média", f"{df_tat['HeartRate'].mean():.0f} bpm")
+                with col_metric5:
+                    st.metric("FC Máxima", f"{df_tat['HeartRate'].max():.0f} bpm")
+                st.markdown("---")
                 
                 bounds = st.session_state.get('bounds_estadio', None)
-                if not bounds:
+                if bounds:
+                    if len(df_tat) > 3000:
+                        df_tat_sample = df_tat.sample(3000, random_state=42)
+                        st.caption(f"📊 Usando amostra de 3.000 pontos (total: {len(df_tat):,})")
+                    else:
+                        df_tat_sample = df_tat
+                    
+                    campo_x, campo_y = [], []
+                    for _, row in df_tat_sample.iterrows():
+                        x, y = converter_gps_para_campo_cached(row['Latitude'], row['Longitude'], bounds)
+                        campo_x.append(x); campo_y.append(y)
+                    df_tat_sample['campo_x'], df_tat_sample['campo_y'] = campo_x, campo_y
+                else:
                     st.warning("⚠️ Limites do estádio não definidos.")
                     st.stop()
                 
-                if len(df_tat) > 3000:
-                    df_tat_sample = df_tat.sample(3000, random_state=42)
-                else:
-                    df_tat_sample = df_tat
-                
-                campo_x, campo_y = [], []
-                for _, row in df_tat_sample.iterrows():
-                    x, y = converter_gps_para_campo_cached(row['Latitude'], row['Longitude'], bounds)
-                    campo_x.append(x); campo_y.append(y)
-                df_tat_sample['campo_x'], df_tat_sample['campo_y'] = campo_x, campo_y
-                
                 col_lin, col_col = st.columns(2)
                 with col_lin:
-                    num_linhas = st.number_input("Linhas", 1, 8, 3, key="num_linhas")
+                    num_linhas = st.number_input("Linhas (divisão horizontal)", 1, 8, 3, key="num_linhas")
                 with col_col:
-                    num_colunas = st.number_input("Colunas", 1, 8, 3, key="num_colunas")
+                    num_colunas = st.number_input("Colunas (divisão vertical)", 1, 8, 3, key="num_colunas")
                 
                 linhas_bins = np.linspace(X_MIN, X_MAX, num_linhas + 1)
                 colunas_bins = np.linspace(Y_MIN, Y_MAX, num_colunas + 1)
@@ -1552,14 +1561,36 @@ if uploaded_files:
                 df_tat_sample['Zona'] = df_tat_sample['Zona_Linha'].astype(str) + '-' + df_tat_sample['Zona_Coluna'].astype(str)
                 
                 zona_metrics = df_tat_sample.groupby('Zona', observed=True).agg({
-                    'Seconds': 'count', 'Velocity': ['mean', 'max']
+                    'Seconds': 'count',
+                    'Velocity': ['mean', 'max'],
+                    'HeartRate': ['mean', 'max']
                 }).round(2)
-                zona_metrics.columns = ['Contagem', 'Vel_Média', 'Vel_Máx']
-                zona_metrics['Vel_Média'] = zona_metrics['Vel_Média'] * 3.6
-                zona_metrics['Vel_Máx'] = zona_metrics['Vel_Máx'] * 3.6
+                zona_metrics.columns = ['Contagem', 'Vel_Média', 'Vel_Máx', 'FC_Média', 'FC_Máx']
+                
+                if len(df_tat_sample) > 1:
+                    sample_rate = df_tat_sample['Seconds'].diff().median()
+                    zona_metrics['Tempo(s)'] = zona_metrics['Contagem'] * sample_rate
+                    zona_metrics['Tempo(min)'] = zona_metrics['Tempo(s)'] / 60
+                else:
+                    zona_metrics['Tempo(s)'] = zona_metrics['Tempo(min)'] = 0
                 
                 total_contagem = zona_metrics['Contagem'].sum()
                 zona_metrics['% Frequência'] = (zona_metrics['Contagem'] / total_contagem * 100).round(1) if total_contagem > 0 else 0
+                zona_metrics = zona_metrics.sort_values('% Frequência', ascending=False)
+                zona_metrics['% Acumulada'] = zona_metrics['% Frequência'].cumsum().round(1)
+                zona_metrics = zona_metrics.sort_index()
+                
+                total_vel_peso = (zona_metrics['Vel_Média'] * zona_metrics['Contagem']).sum()
+                zona_metrics['Intensidade (%)'] = ((zona_metrics['Vel_Média'] * zona_metrics['Contagem']) / total_vel_peso * 100).round(1) if total_vel_peso > 0 else 0
+                
+                # Converter velocidades para km/h para exibição
+                zona_metrics['Vel_Média'] = zona_metrics['Vel_Média'] * 3.6
+                zona_metrics['Vel_Máx'] = zona_metrics['Vel_Máx'] * 3.6
+                
+                st.markdown("### 🗺️ Visualização Tática")
+                viz_type = st.radio("Tipo de visualização", 
+                                   ["Trajetória por zona", "Mapa de calor - Tempo", "Mapa de calor - Velocidade", "Mapa de calor - Densidade (KDE)"], 
+                                   horizontal=True)
                 
                 fig_tat = go.Figure()
                 for shape in desenhar_campo_futebol():
@@ -1569,30 +1600,91 @@ if uploaded_files:
                 for shape in shapes_div:
                     fig_tat.add_shape(shape)
                 
-                heatmap = np.zeros((num_linhas, num_colunas))
-                for i in range(num_linhas):
-                    for j in range(num_colunas):
-                        zona = f'L{i+1}-C{j+1}'
-                        if zona in zona_metrics.index:
-                            heatmap[i, j] = zona_metrics.loc[zona, 'Contagem']
+                if viz_type == "Trajetória por zona":
+                    cores = px.colors.qualitative.Set3
+                    for i, (zona, group) in enumerate(df_tat_sample.groupby('Zona')):
+                        fig_tat.add_trace(go.Scatter(x=group['campo_x'], y=group['campo_y'], mode='markers', name=f'Zona {zona}',
+                                                     marker=dict(size=4, color=cores[i % len(cores)], opacity=0.7),
+                                                     text=[f"Zona: {zona}<br>Vel: {v * 3.6:.1f} km/h" for v in group['Velocity']],
+                                                     hoverinfo='text'))
                 
-                fig_tat.add_trace(go.Heatmap(x=linhas_bins_plot, y=colunas_bins_plot, z=heatmap.T, colorscale='Hot', opacity=0.7,
-                                             colorbar=dict(title="Frequência")))
-                fig_tat.add_trace(go.Scatter(x=df_tat_sample['campo_x'], y=df_tat_sample['campo_y'], mode='markers',
-                                             marker=dict(size=2, color='white', opacity=0.5), name='Trajetória'))
+                elif viz_type == "Mapa de calor - Tempo":
+                    heatmap = np.zeros((num_linhas, num_colunas))
+                    for i in range(num_linhas):
+                        for j in range(num_colunas):
+                            zona = f'L{i+1}-C{j+1}'
+                            if zona in zona_metrics.index:
+                                heatmap[i, j] = zona_metrics.loc[zona, 'Contagem']
+                    fig_tat.add_trace(go.Heatmap(x=linhas_bins_plot, y=colunas_bins_plot, z=heatmap.T, colorscale='Hot', opacity=0.7,
+                                                 colorbar=dict(title="Tempo gasto")))
+                    for i in range(num_linhas):
+                        for j in range(num_colunas):
+                            zona = f'L{i+1}-C{j+1}'
+                            if zona in zona_metrics.index:
+                                pct = zona_metrics.loc[zona, '% Frequência']
+                                centro_x, centro_y = (linhas_bins_plot[i] + linhas_bins_plot[i+1]) / 2, (colunas_bins_plot[j] + colunas_bins_plot[j+1]) / 2
+                                fig_tat.add_annotation(x=centro_x, y=centro_y, text=f"{pct:.1f}%", showarrow=False,
+                                                       font=dict(color="white", size=12),
+                                                       bgcolor="rgba(0,0,0,0.6)", borderpad=2)
+                    fig_tat.add_trace(go.Scatter(x=df_tat_sample['campo_x'], y=df_tat_sample['campo_y'], mode='markers',
+                                                 marker=dict(size=2, color='white', opacity=0.5), name='Trajetória', hoverinfo='skip'))
                 
-                fig_tat.update_layout(title=f"Análise Tática - {selected_atletas[0]}", height=600,
-                                      xaxis_title="Posição (m)", yaxis_title="Posição (m)",
-                                      xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2]),
+                elif viz_type == "Mapa de calor - Velocidade":
+                    heatmap = np.zeros((num_linhas, num_colunas))
+                    for i in range(num_linhas):
+                        for j in range(num_colunas):
+                            zona = f'L{i+1}-C{j+1}'
+                            if zona in zona_metrics.index:
+                                heatmap[i, j] = zona_metrics.loc[zona, 'Vel_Média']
+                    fig_tat.add_trace(go.Heatmap(x=linhas_bins_plot, y=colunas_bins_plot, z=heatmap.T, colorscale='Viridis', opacity=0.7,
+                                                 colorbar=dict(title="Velocidade média (km/h)")))
+                    for i in range(num_linhas):
+                        for j in range(num_colunas):
+                            zona = f'L{i+1}-C{j+1}'
+                            if zona in zona_metrics.index:
+                                vel = zona_metrics.loc[zona, 'Vel_Média']
+                                centro_x, centro_y = (linhas_bins_plot[i] + linhas_bins_plot[i+1]) / 2, (colunas_bins_plot[j] + colunas_bins_plot[j+1]) / 2
+                                fig_tat.add_annotation(x=centro_x, y=centro_y, text=f"{vel:.1f}", showarrow=False,
+                                                       font=dict(color="white", size=10),
+                                                       bgcolor="rgba(0,0,0,0.6)", borderpad=2)
+                    fig_tat.add_trace(go.Scatter(x=df_tat_sample['campo_x'], y=df_tat_sample['campo_y'], mode='markers',
+                                                 marker=dict(size=2, color='white', opacity=0.5), name='Trajetória', hoverinfo='skip'))
+                
+                else:  # Mapa de calor - Densidade (KDE)
+                    from scipy.stats import gaussian_kde
+                    if len(df_tat_sample) > 1:
+                        xy = np.vstack([df_tat_sample['campo_x'], df_tat_sample['campo_y']])
+                        z = gaussian_kde(xy)(xy)
+                        fig_tat.add_trace(go.Scatter(x=df_tat_sample['campo_x'], y=df_tat_sample['campo_y'], mode='markers',
+                                                     marker=dict(size=4, color=z, colorscale='Hot', showscale=True,
+                                                                colorbar=dict(title="Densidade")),
+                                                     name='Densidade', hoverinfo='skip'))
+                    fig_tat.add_trace(go.Scatter(x=df_tat_sample['campo_x'], y=df_tat_sample['campo_y'], mode='markers',
+                                                 marker=dict(size=1, color='white', opacity=0.3), name='Trajetória', hoverinfo='skip'))
+                
+                fig_tat.update_layout(title=f"Análise Tática - {selected_atletas[0]} - {periodo_tatica}",
+                                      xaxis_title="Posição (m) - Comprimento", yaxis_title="Posição (m) - Largura",
+                                      height=600, xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2]),
                                       yaxis=dict(range=[Y_MIN-2, Y_MAX+2]), plot_bgcolor='rgba(34,139,34,0.2)')
                 st.plotly_chart(fig_tat, use_container_width=True)
                 
+                with st.expander("📖 **O que é o índice de Intensidade?**"):
+                    st.markdown("""
+                    O **Índice de Intensidade** combina **velocidade média** e **tempo de permanência** em cada zona.
+                    **Fórmula:** `Intensidade = (Vel_Média × Contagem) / Σ(Vel_Média × Contagem) × 100`
+                    **Interpretação:** >70%: esforço máximo, 30-70%: moderado, <30%: recuperação
+                    """)
+                
                 st.markdown("### 📊 Demanda Física por Zona")
-                st.dataframe(zona_metrics[['Contagem', '% Frequência', 'Vel_Média', 'Vel_Máx']].style.format({
-                    'Contagem': '{:.0f}', '% Frequência': '{:.1f}%', 'Vel_Média': '{:.1f}', 'Vel_Máx': '{:.1f}'
+                st.dataframe(zona_metrics[['Contagem', '% Frequência', '% Acumulada', 'Vel_Média', 'Vel_Máx', 'FC_Média', 'FC_Máx', 'Intensidade (%)']].style.format({
+                    'Contagem': '{:.0f}', '% Frequência': '{:.1f}%', '% Acumulada': '{:.1f}%',
+                    'Vel_Média': '{:.1f}', 'Vel_Máx': '{:.1f}', 'FC_Média': '{:.0f}', 'FC_Máx': '{:.0f}', 'Intensidade (%)': '{:.1f}%'
                 }), use_container_width=True)
+                
+                csv_tatico = zona_metrics.reset_index().to_csv(index=False)
+                st.download_button("📥 Exportar análise tática", csv_tatico, f"analise_tatica_{selected_atletas[0]}_{periodo_tatica}.csv")
             
-            # TAB 3: Perfil Aceleração-Velocidade (CORRIGIDO)
+            # TAB 3: PERFIL ACELERAÇÃO-VELOCIDADE
             with tab3:
                 st.subheader("⚡ Perfil Aceleração-Velocidade (Acceleration-Speed Profile)")
                 
@@ -1671,7 +1763,7 @@ if uploaded_files:
                             x=[metrics['v0']], y=[0],
                             mode='markers+text',
                             marker=dict(size=14, color='orange', symbol='circle', line=dict(width=2, color='white')),
-                            text=[f"v₀ = {metrics['v0']:.2f} m/s"],
+                            text=[f"v₀ = {metrics['v0']:.2f} m/s ({metrics['v0'] * 3.6:.1f} km/h)"],
                             textposition='bottom right',
                             name='Velocidade Máxima Teórica'
                         ))
@@ -1713,7 +1805,6 @@ if uploaded_files:
                         
                         st.dataframe(asp_df[['a₀ (m/s²)', 'v₀ (m/s)', 'v₀ (km/h)', 'vₘₐₓ (km/h)', 'Pₘₐₓ (W/kg)', 'R²', 'Qualidade']], use_container_width=True)
                         
-                        # Cards de interpretação
                         st.markdown("### 🎯 Interpretação dos Resultados")
                         col_asp1, col_asp2, col_asp3 = st.columns(3)
                         
@@ -1722,18 +1813,18 @@ if uploaded_files:
                             st.markdown(f"""
                             <div class="metric-card">
                                 <div class="metric-value">{a0_medio:.2f}</div>
-                                <div class="metric-label">Aceleração Máxima (m/s²)</div>
+                                <div class="metric-label">Aceleração Média (m/s²)</div>
                                 <div style="font-size:0.7rem">⚡ Capacidade de aceleração inicial</div>
                             </div>
                             """, unsafe_allow_html=True)
                         
                         with col_asp2:
-                            v0_medio = asp_df['v₀ (m/s)'].mean()
+                            v0_medio = asp_df['v₀ (km/h)'].mean()
                             st.markdown(f"""
                             <div class="metric-card">
-                                <div class="metric-value">{v0_medio:.2f}</div>
-                                <div class="metric-label">Velocidade Máx Teórica (m/s)</div>
-                                <div style="font-size:0.7rem">🏃 {v0_medio * 3.6:.1f} km/h</div>
+                                <div class="metric-value">{v0_medio:.1f}</div>
+                                <div class="metric-label">Velocidade Teórica (km/h)</div>
+                                <div style="font-size:0.7rem">🏃 Capacidade de alta velocidade</div>
                             </div>
                             """, unsafe_allow_html=True)
                         
@@ -1742,17 +1833,16 @@ if uploaded_files:
                             st.markdown(f"""
                             <div class="metric-card">
                                 <div class="metric-value">{p_max_medio:.2f}</div>
-                                <div class="metric-label">Potência Máxima (W/kg)</div>
+                                <div class="metric-label">Potência Máx (W/kg)</div>
                                 <div style="font-size:0.7rem">💪 Explosividade muscular</div>
                             </div>
                             """, unsafe_allow_html=True)
                         
-                        # Info sobre correções aplicadas
                         st.markdown('<div class="info-card">', unsafe_allow_html=True)
                         st.info("📊 **Tratamento Estatístico Aplicado:** Filtro IQR para remoção de outliers, regressão robusta RANSAC, limites fisiológicos (a₀: 1.5-6.0 m/s², v₀: 6.0-13.0 m/s, Pₘₐₓ: 4-20 W/kg)")
                         st.markdown('</div>', unsafe_allow_html=True)
             
-            # TAB 4: Performance Cardíaca com TRIMP
+            # TAB 4: PERFORMANCE CARDÍACA (COMPLETA)
             with tab4:
                 st.subheader("❤️ Análise de Performance Cardíaca")
                 
@@ -1760,64 +1850,164 @@ if uploaded_files:
                 df_fc = dfs_por_periodo[periodo_fc]
                 start_dt_fc = df_fc['start_datetime'].iloc[0] if len(df_fc) > 0 else None
                 
+                # Calcular TRIMP
                 fc_max = df_fc['HeartRate'].max()
                 trimp_total, zonas_trimp = calcular_trimp_edwards(df_fc, fc_max)
                 
-                st.markdown("### 📊 Carga Interna (TRIMP - Edwards)")
+                # Cards de TRIMP
+                st.markdown("### 📊 Carga Interna (TRIMP)")
                 col_trimp1, col_trimp2, col_trimp3 = st.columns(3)
-                with col_trimp1:
-                    st.metric("TRIMP Total", f"{trimp_total:.1f}")
-                with col_trimp2:
-                    st.metric("FC Máxima", f"{fc_max:.0f} bpm")
-                with col_trimp3:
-                    st.metric("FC Média", f"{df_fc['HeartRate'].mean():.0f} bpm")
                 
-                fig_trimp_bar = px.bar(zonas_trimp, x='Zona', y='TRIMP', title="TRIMP por Zona de Frequência Cardíaca",
-                                       text=zonas_trimp['TRIMP'].apply(lambda x: f'{x:.1f}'), color='Zona')
+                with col_trimp1:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-value">{trimp_total:.1f}</div>
+                        <div class="metric-label">TRIMP Total</div>
+                        <div style="font-size:0.7rem; margin-top:8px;">❤️ Carga interna total</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col_trimp2:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-value">{fc_max:.0f}</div>
+                        <div class="metric-label">FC Máxima (bpm)</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col_trimp3:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-value">{df_fc['HeartRate'].mean():.0f}</div>
+                        <div class="metric-label">FC Média (bpm)</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                st.markdown("---")
+                
+                # Tabela de TRIMP por zona
+                st.markdown("### 📈 Distribuição do TRIMP por Zona de Intensidade")
+                
+                fig_trimp_bar = px.bar(zonas_trimp, x='Zona', y='TRIMP', 
+                                       title="TRIMP por Zona de Frequência Cardíaca",
+                                       text=zonas_trimp['TRIMP'].apply(lambda x: f'{x:.1f}'),
+                                       color='Zona',
+                                       color_discrete_sequence=['#2ecc71', '#f1c40f', '#e67e22', '#e74c3c', '#e84393'])
                 fig_trimp_bar.update_layout(showlegend=False, height=400)
                 st.plotly_chart(fig_trimp_bar, use_container_width=True)
                 
+                # Gráfico de FC vs Aceleração
                 if len(df_fc) > 2000:
                     df_fc_plot = df_fc.sample(2000, random_state=42).sort_values('Seconds')
+                    st.caption(f"📊 Usando amostra de 2.000 pontos (total: {len(df_fc):,})")
                 else:
                     df_fc_plot = df_fc
                 
                 df_fc_plot['Horario'] = df_fc_plot['Seconds'].apply(lambda x: seconds_to_time_str(x, start_dt_fc))
                 
-                fig_fc = go.Figure()
-                fig_fc.add_trace(go.Scatter(x=df_fc_plot['Horario'], y=df_fc_plot['HeartRate'], mode='lines', name='FC',
-                                            line=dict(color='#ff6b6b', width=2), fill='tozeroy'))
+                fig_fc_acc = make_subplots(specs=[[{"secondary_y": True}]])
+                
+                fig_fc_acc.add_trace(
+                    go.Scatter(x=df_fc_plot['Horario'], y=df_fc_plot['HeartRate'], mode='lines', name='FC',
+                              line=dict(color='#ff6b6b', width=2), fill='tozeroy', fillcolor='rgba(255,107,107,0.1)'),
+                    secondary_y=False
+                )
+                
+                fig_fc_acc.add_trace(
+                    go.Scatter(x=df_fc_plot['Horario'], y=df_fc_plot['Acceleration'], mode='lines', name='Aceleração',
+                              line=dict(color='#4ecdc4', width=1.5), fill='tozeroy', fillcolor='rgba(78,205,196,0.1)'),
+                    secondary_y=True
+                )
                 
                 limiar_anaerobico = fc_max * 0.85
                 limiar_aerobico = fc_max * 0.75
                 
-                fig_fc.add_hrect(y0=limiar_aerobico, y1=limiar_anaerobico, fillcolor="rgba(255,215,0,0.2)", line_width=0,
-                                 annotation_text="Zona Anaeróbica", annotation_position="bottom right")
-                fig_fc.add_hrect(y0=limiar_anaerobico, y1=fc_max, fillcolor="rgba(231,76,60,0.2)", line_width=0,
-                                 annotation_text="Zona Máxima", annotation_position="top right")
+                fig_fc_acc.add_hrect(y0=limiar_aerobico, y1=limiar_anaerobico, fillcolor="rgba(255,215,0,0.2)", line_width=0, secondary_y=False,
+                                     annotation_text="Zona Anaeróbica", annotation_position="bottom right")
+                fig_fc_acc.add_hrect(y0=limiar_anaerobico, y1=fc_max, fillcolor="rgba(231,76,60,0.2)", line_width=0, secondary_y=False,
+                                     annotation_text="Zona Máxima", annotation_position="top right")
                 
-                fig_fc.update_layout(title=f"FC durante o período - {periodo_fc}", height=450, hovermode='x unified')
-                fig_fc.update_yaxes(title_text="Frequência Cardíaca (bpm)")
-                st.plotly_chart(fig_fc, use_container_width=True)
+                fig_fc_acc.update_layout(
+                    title=f"FC vs Aceleração - {periodo_fc}",
+                    height=450,
+                    hovermode='x unified',
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+                )
+                fig_fc_acc.update_yaxes(title_text="Frequência Cardíaca (bpm)", secondary_y=False, color="#ff6b6b")
+                fig_fc_acc.update_yaxes(title_text="Aceleração (m/s²)", secondary_y=True, color="#4ecdc4")
+                st.plotly_chart(fig_fc_acc, use_container_width=True)
+                
+                # Gráfico de Distância Acumulada vs FC
+                if 'Odometer' in df_fc_plot.columns:
+                    st.markdown("### 📈 Distância Acumulada vs FC")
+                    
+                    df_fc_plot['Distancia_Acumulada'] = df_fc_plot['Odometer'] - df_fc_plot['Odometer'].min()
+                    
+                    fig_dist_fc = make_subplots(specs=[[{"secondary_y": True}]])
+                    
+                    fig_dist_fc.add_trace(
+                        go.Scatter(x=df_fc_plot['Horario'], y=df_fc_plot['Distancia_Acumulada'], mode='lines', name='Distância',
+                                  line=dict(color='#2ecc71', width=2), fill='tozeroy', fillcolor='rgba(46,204,113,0.1)'),
+                        secondary_y=False
+                    )
+                    
+                    fig_dist_fc.add_trace(
+                        go.Scatter(x=df_fc_plot['Horario'], y=df_fc_plot['HeartRate'], mode='lines', name='FC',
+                                  line=dict(color='#ff6b6b', width=2)),
+                        secondary_y=True
+                    )
+                    
+                    fig_dist_fc.update_layout(title=f"Distância vs FC - {periodo_fc}", height=400)
+                    fig_dist_fc.update_yaxes(title_text="Distância (m)", secondary_y=False, color="#2ecc71")
+                    fig_dist_fc.update_yaxes(title_text="FC (bpm)", secondary_y=True, color="#ff6b6b")
+                    st.plotly_chart(fig_dist_fc, use_container_width=True)
                 
                 st.markdown("### 📊 Zonas de Intensidade Cardíaca")
                 
                 df_fc_plot['Zona_FC'] = pd.cut(df_fc_plot['HeartRate'], 
                                           bins=[0, fc_max*0.6, fc_max*0.75, fc_max*0.9, fc_max],
-                                          labels=['Recuperação', 'Aeróbica', 'Anaeróbica', 'Máximo'])
+                                          labels=['Recuperação (<60%)', 'Aeróbica (60-75%)', 'Anaeróbica (75-90%)', 'Máximo (>90%)'])
                 
                 zona_stats = df_fc_plot.groupby('Zona_FC', observed=True).size().reset_index(name='Contagem')
                 zona_stats['% do Tempo'] = (zona_stats['Contagem'] / len(df_fc_plot) * 100).round(1)
+                if len(df_fc_plot) > 1:
+                    sample_rate = df_fc_plot['Seconds'].diff().median()
+                    zona_stats['Tempo (min)'] = (zona_stats['Contagem'] * sample_rate / 60).round(1)
+                else:
+                    zona_stats['Tempo (min)'] = 0
                 
-                fig_zona_bar = px.bar(zona_stats, x='Zona_FC', y='% do Tempo', title="Distribuição do Tempo por Zona",
-                                      text=zona_stats['% do Tempo'].apply(lambda x: f'{x}%'), color='Zona_FC')
+                fig_zona_bar = px.bar(zona_stats, x='Zona_FC', y='% do Tempo', 
+                                      title="Distribuição do Tempo por Zona de Intensidade",
+                                      text=zona_stats['% do Tempo'].apply(lambda x: f'{x}%'),
+                                      color='Zona_FC',
+                                      color_discrete_sequence=['#2ecc71', '#f1c40f', '#e67e22', '#e74c3c'])
                 fig_zona_bar.update_layout(showlegend=False, height=400)
                 st.plotly_chart(fig_zona_bar, use_container_width=True)
                 
+                col_pie1, col_pie2 = st.columns(2)
+                with col_pie1:
+                    fig_pie = px.pie(zona_stats, values='Contagem', names='Zona_FC', title="Distribuição por Zona de Intensidade",
+                                     color_discrete_sequence=['#2ecc71', '#f1c40f', '#e67e22', '#e74c3c'])
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                
+                with col_pie2:
+                    st.markdown("### 📈 Resumo Cardíaco")
+                    tempo_maximo = zona_stats[zona_stats['Zona_FC'] == 'Máximo (>90%)']['% do Tempo'].values[0] if 'Máximo (>90%)' in zona_stats['Zona_FC'].values else 0
+                    st.markdown(f"""
+                    <div style="background: rgba(0,0,0,0.3); border-radius: 15px; padding: 20px;">
+                        <p><b>❤️ FC Máxima:</b> {fc_max:.0f} bpm</p>
+                        <p><b>📊 FC Média:</b> {df_fc_plot['HeartRate'].mean():.0f} bpm</p>
+                        <p><b>⚡ Limiar Anaeróbico:</b> {limiar_anaerobico:.0f} bpm</p>
+                        <p><b>🏃 Tempo em Zona Máxima:</b> {tempo_maximo}%</p>
+                        <p><b>📈 TRIMP Total:</b> {trimp_total:.1f} unidades</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Exportar dados de TRIMP
                 csv_trimp = zonas_trimp.to_csv(index=False)
                 st.download_button("📥 Exportar dados de TRIMP", csv_trimp, f"trimp_{selected_atletas[0]}_{periodo_fc}.csv")
             
-            # TAB 5: Sprints e Alta Intensidade
+            # TAB 5: SPRINTS E ALTA INTENSIDADE
             with tab5:
                 st.subheader("🚀 Sprints e Esforços de Alta Intensidade")
                 
@@ -1825,59 +2015,185 @@ if uploaded_files:
                 df_sprint = dfs_por_periodo[periodo_sprint]
                 start_dt_sprint = df_sprint['start_datetime'].iloc[0] if len(df_sprint) > 0 else None
                 
+                # Validar dados
+                st.markdown("### 📊 Validação de Dados")
                 validacao = validar_dados_gps(df_sprint)
+                
                 if validacao['alertas']:
                     for alerta in validacao['alertas']:
                         st.warning(f"⚠️ {alerta}")
                 
+                col_val1, col_val2, col_val3 = st.columns(3)
+                with col_val1:
+                    st.metric("Velocidade Máxima", f"{validacao['valores']['velocidade_max_kmh']:.1f} km/h")
+                    st.caption("Limite fisiológico: ~36 km/h")
+                with col_val2:
+                    st.metric("Aceleração Máxima", f"{validacao['valores']['aceleracao_max']:.2f} m/s²")
+                    st.caption("Limite fisiológico: ~6 m/s²")
+                with col_val3:
+                    st.metric("Desaceleração Máxima", f"{validacao['valores']['desaceleracao_max']:.2f} m/s²")
+                    st.caption("Limite fisiológico: ~-8 m/s²")
+                
+                st.markdown("---")
+                st.markdown("### ⚙️ Parâmetros de Detecção")
+                
                 col_param1, col_param2 = st.columns(2)
                 with col_param1:
-                    limiar_sprint = st.number_input("Limiar para Sprint (km/h)", value=25.0, step=1.0, min_value=10.0, max_value=40.0, key="limiar_sprint")
-                    duracao_min_sprint = st.number_input("Duração mínima do Sprint (s)", value=1.0, step=0.5, min_value=0.5, key="duracao_sprint")
+                    limiar_sprint = st.number_input("Limiar para Sprint (km/h)", value=25.0, step=0.5, min_value=10.0, max_value=40.0, key="limiar_sprint", format="%.1f")
+                    duracao_min_sprint = st.number_input("Duração mínima do Sprint (s)", value=1.0, step=0.5, min_value=0.5, key="duracao_sprint", format="%.1f")
+                    st.caption(f"Corresponde a {limiar_sprint/3.6:.2f} m/s")
                 with col_param2:
-                    limiar_ai = st.number_input("Limiar para Alta Intensidade (km/h)", value=20.0, step=1.0, min_value=10.0, max_value=35.0, key="limiar_ai")
-                    duracao_min_ai = st.number_input("Duração mínima AI (s)", value=3.0, step=0.5, min_value=1.0, key="duracao_ai")
+                    limiar_ai = st.number_input("Limiar para Alta Intensidade (km/h)", value=20.0, step=0.5, min_value=10.0, max_value=35.0, key="limiar_ai", format="%.1f")
+                    duracao_min_ai = st.number_input("Duração mínima AI (s)", value=3.0, step=0.5, min_value=1.0, key="duracao_ai", format="%.1f")
+                    st.caption(f"Corresponde a {limiar_ai/3.6:.2f} m/s")
                 
-                v_max_kmh = df_sprint['Velocity'].max() * 3.6
+                v_max_kmh = validacao['valores']['velocidade_max_kmh']
                 if limiar_sprint > v_max_kmh:
-                    st.warning(f"⚠️ Limiar de sprint ({limiar_sprint} km/h) > velocidade máxima ({v_max_kmh:.1f} km/h). Nenhum sprint será detectado.")
+                    st.warning(f"⚠️ O limiar de sprint ({limiar_sprint:.1f} km/h) é maior que a velocidade máxima do atleta ({v_max_kmh:.1f} km/h). Nenhum sprint será detectado.")
                 if limiar_ai > v_max_kmh:
-                    st.warning(f"⚠️ Limiar de AI ({limiar_ai} km/h) > velocidade máxima ({v_max_kmh:.1f} km/h). Nenhum esforço será detectado.")
+                    st.warning(f"⚠️ O limiar de alta intensidade ({limiar_ai:.1f} km/h) é maior que a velocidade máxima do atleta ({v_max_kmh:.1f} km/h). Nenhum esforço será detectado.")
                 
-                with st.spinner("Detectando sprints..."):
+                with st.spinner("Detectando sprints e esforços de alta intensidade..."):
                     sprints = detectar_sprints(df_sprint, limiar_sprint, duracao_min_sprint)
                     esforcos_ai = detectar_esforcos_alta_intensidade(df_sprint, limiar_ai, duracao_min_ai)
                 
+                st.markdown("---")
+                st.markdown("### 📊 Métricas Detectadas")
+                
                 col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+                
+                dist_sprints = sum(s['distancia'] for s in sprints)
+                dist_ai = sum(e['distancia'] for e in esforcos_ai)
+                
+                # Calcular tempo total acima dos limiares
+                v_ms = df_sprint['Velocity'].values
+                if len(df_sprint) > 1:
+                    sample_rate = df_sprint['Seconds'].diff().median()
+                else:
+                    sample_rate = 1
+                tempo_acima_ai = np.sum(v_ms >= (limiar_ai/3.6)) * sample_rate
+                tempo_acima_sprint = np.sum(v_ms >= (limiar_sprint/3.6)) * sample_rate
+                
                 with col_s1:
-                    st.metric("Total Sprints", len(sprints))
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-value">{len(sprints)}</div>
+                        <div class="metric-label">Total de Sprints</div>
+                        <div style="font-size:0.7rem">(>{limiar_sprint:.1f} km/h, ≥{duracao_min_sprint:.1f}s)</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
                 with col_s2:
-                    st.metric("Distância Sprints", f"{sum(s['distancia'] for s in sprints):.0f} m")
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-value">{dist_sprints:.0f}</div>
+                        <div class="metric-label">Distância em Sprints (m)</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
                 with col_s3:
-                    st.metric("Esforços AI", len(esforcos_ai))
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-value">{len(esforcos_ai)}</div>
+                        <div class="metric-label">Esforços Alta Intensidade</div>
+                        <div style="font-size:0.7rem">(>{limiar_ai:.1f} km/h, ≥{duracao_min_ai:.1f}s)</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
                 with col_s4:
-                    st.metric("Distância AI", f"{sum(e['distancia'] for e in esforcos_ai):.0f} m")
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-value">{dist_ai:.0f}</div>
+                        <div class="metric-label">Distância em AI (m)</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                st.markdown("---")
+                col_t1, col_t2 = st.columns(2)
+                with col_t1:
+                    st.metric("Tempo acima do limiar AI", f"{tempo_acima_ai:.1f}s")
+                with col_t2:
+                    st.metric("Tempo acima do limiar Sprint", f"{tempo_acima_sprint:.1f}s")
+                
+                tempo_total = tempos_por_periodo.get(periodo_sprint, 0)
+                if tempo_acima_ai > 0 and tempo_total > 0:
+                    pct_ai = (tempo_acima_ai / tempo_total) * 100
+                    if pct_ai > 50:
+                        st.warning(f"⚠️ O atleta passou {pct_ai:.1f}% do tempo em alta intensidade. Verifique se os limiares estão apropriados.")
                 
                 if sprints:
                     st.markdown("### 📋 Detalhamento dos Sprints")
                     df_sprints = pd.DataFrame(sprints)
                     df_sprints['inicio_time'] = df_sprints['inicio_time'].apply(lambda x: seconds_to_time_str(x, start_dt_sprint))
                     df_sprints['fim_time'] = df_sprints['fim_time'].apply(lambda x: seconds_to_time_str(x, start_dt_sprint))
-                    st.dataframe(df_sprints[['inicio_time', 'fim_time', 'duracao', 'vel_max', 'vel_media', 'distancia']], use_container_width=True)
+                    df_sprints['duracao'] = df_sprints['duracao'].apply(lambda x: f"{x:.1f}s")
+                    df_sprints['vel_max'] = df_sprints['vel_max'].apply(lambda x: f"{x:.1f} km/h")
+                    df_sprints['vel_media'] = df_sprints['vel_media'].apply(lambda x: f"{x:.1f} km/h")
+                    df_sprints['acel_max'] = df_sprints['acel_max'].apply(lambda x: f"{x:.2f} m/s²")
+                    df_sprints['distancia'] = df_sprints['distancia'].apply(lambda x: f"{x:.0f} m")
+                    
+                    st.dataframe(df_sprints[['inicio_time', 'fim_time', 'duracao', 'vel_max', 'vel_media', 'acel_max', 'distancia']], use_container_width=True)
+                    
+                    st.markdown("### 📈 Perfil de Velocidade com Sprints Destacados")
                     
                     fig_sprint = go.Figure()
-                    fig_sprint.add_trace(go.Scatter(x=df_sprint['Seconds'], y=df_sprint['Velocity'] * 3.6, mode='lines', name='Velocidade', line=dict(color='#00d2ff')))
-                    for sprint in sprints:
-                        fig_sprint.add_vrect(x0=sprint['inicio_time'], x1=sprint['fim_time'], fillcolor="rgba(255,0,0,0.3)", line_width=0)
-                    fig_sprint.add_hline(y=limiar_sprint, line_dash="dash", line_color="red")
-                    fig_sprint.update_layout(title="Perfil de Velocidade com Sprints", height=500)
+                    
+                    fig_sprint.add_trace(go.Scatter(
+                        x=df_sprint['Seconds'], y=df_sprint['Velocity'] * 3.6,
+                        mode='lines', name='Velocidade',
+                        line=dict(color='#00d2ff', width=2)
+                    ))
+                    
+                    for i, sprint in enumerate(sprints):
+                        fig_sprint.add_vrect(
+                            x0=sprint['inicio_time'],
+                            x1=sprint['fim_time'],
+                            fillcolor="rgba(255, 0, 0, 0.3)",
+                            layer="below",
+                            line_width=0,
+                            annotation_text=f"Sprint {i+1}",
+                            annotation_position="top left"
+                        )
+                    
+                    fig_sprint.add_hline(y=limiar_sprint, line_dash="dash", line_color="red", annotation_text=f"Limiar Sprint ({limiar_sprint:.1f} km/h)")
+                    fig_sprint.add_hline(y=limiar_ai, line_dash="dash", line_color="orange", annotation_text=f"Limiar AI ({limiar_ai:.1f} km/h)")
+                    
+                    fig_sprint.update_layout(
+                        title="Perfil de Velocidade com Sprints e Esforços de Alta Intensidade",
+                        xaxis_title="Tempo (s)",
+                        yaxis_title="Velocidade (km/h)",
+                        height=500,
+                        hovermode='x unified'
+                    )
+                    
                     st.plotly_chart(fig_sprint, use_container_width=True)
+                else:
+                    st.info("Nenhum sprint detectado para os parâmetros selecionados.")
                 
-                if sprints:
-                    csv_sprints = pd.DataFrame(sprints).to_csv(index=False)
-                    st.download_button("📥 Exportar Sprints", csv_sprints, f"sprints_{selected_atletas[0]}_{periodo_sprint}.csv")
+                if esforcos_ai:
+                    st.markdown("### 📋 Detalhamento dos Esforços de Alta Intensidade")
+                    df_ai = pd.DataFrame(esforcos_ai)
+                    df_ai['inicio_time'] = df_ai['inicio_time'].apply(lambda x: seconds_to_time_str(x, start_dt_sprint))
+                    df_ai['fim_time'] = df_ai['fim_time'].apply(lambda x: seconds_to_time_str(x, start_dt_sprint))
+                    df_ai['duracao'] = df_ai['duracao'].apply(lambda x: f"{x:.1f}s")
+                    df_ai['vel_max'] = df_ai['vel_max'].apply(lambda x: f"{x:.1f} km/h")
+                    df_ai['vel_media'] = df_ai['vel_media'].apply(lambda x: f"{x:.1f} km/h")
+                    df_ai['distancia'] = df_ai['distancia'].apply(lambda x: f"{x:.0f} m")
+                    
+                    st.dataframe(df_ai[['inicio_time', 'fim_time', 'duracao', 'vel_max', 'vel_media', 'distancia']], use_container_width=True)
+                
+                if sprints or esforcos_ai:
+                    col_export1, col_export2 = st.columns(2)
+                    with col_export1:
+                        if sprints:
+                            csv_sprints = pd.DataFrame(sprints).to_csv(index=False)
+                            st.download_button("📥 Exportar Sprints (CSV)", csv_sprints, f"sprints_{selected_atletas[0]}_{periodo_sprint}.csv")
+                    with col_export2:
+                        if esforcos_ai:
+                            csv_ai = pd.DataFrame(esforcos_ai).to_csv(index=False)
+                            st.download_button("📥 Exportar Esforços AI (CSV)", csv_ai, f"esforcos_ai_{selected_atletas[0]}_{periodo_sprint}.csv")
             
-            # TAB 6: Acelerações, Desacelerações e Mudanças de Direção
+            # TAB 6: ACELERAÇÕES, DESACELERAÇÕES E MUDANÇAS DE DIREÇÃO
             with tab6:
                 st.subheader("🔄 Acelerações, Desacelerações e Mudanças de Direção")
                 
@@ -1885,55 +2201,180 @@ if uploaded_files:
                 df_acc = dfs_por_periodo[periodo_acc]
                 start_dt_acc = df_acc['start_datetime'].iloc[0] if len(df_acc) > 0 else None
                 
+                st.markdown("### ⚙️ Parâmetros de Detecção")
                 col_acc1, col_acc2, col_acc3 = st.columns(3)
                 with col_acc1:
-                    limiar_aceleracao = st.number_input("Limiar Aceleração (m/s²)", value=2.5, step=0.5, key="limiar_aceleracao")
+                    limiar_aceleracao = st.number_input("Limiar para Aceleração (m/s²)", value=2.5, step=0.1, min_value=1.0, max_value=8.0, key="limiar_aceleracao", format="%.1f")
+                    st.caption("Acelerações > este valor")
                 with col_acc2:
-                    limiar_desaceleracao = st.number_input("Limiar Desaceleração (m/s²)", value=-2.5, step=0.5, key="limiar_desaceleracao")
+                    limiar_desaceleracao = st.number_input("Limiar para Desaceleração (m/s²)", value=-2.5, step=0.1, min_value=-8.0, max_value=-1.0, key="limiar_desaceleracao", format="%.1f")
+                    st.caption("Desacelerações < este valor")
                 with col_acc3:
-                    angulo_limiar = st.number_input("Ângulo Mudança Direção (°)", value=45, step=5, key="angulo_limiar")
+                    angulo_limiar = st.number_input("Ângulo para Mudança Direção (°)", value=45, step=5, min_value=15, max_value=120, key="angulo_limiar")
+                    st.caption("Mudanças de direção > este ângulo")
                 
-                aceleracoes = detectar_aceleracoes(df_acc, limiar_aceleracao, duracao_minima=0.5)
-                desaceleracoes = detectar_desaceleracoes(df_acc, limiar_desaceleracao, duracao_minima=0.5)
+                with st.spinner("Detectando acelerações, desacelerações e mudanças de direção..."):
+                    aceleracoes = detectar_aceleracoes(df_acc, limiar_aceleracao, duracao_minima=0.5)
+                    desaceleracoes = detectar_desaceleracoes(df_acc, limiar_desaceleracao, duracao_minima=0.5)
+                    
+                    bounds = st.session_state.get('bounds_estadio', None)
+                    if bounds:
+                        if 'campo_x' not in df_acc.columns:
+                            campo_x, campo_y = [], []
+                            for _, row in df_acc.iterrows():
+                                x, y = converter_gps_para_campo_cached(row['Latitude'], row['Longitude'], bounds)
+                                campo_x.append(x)
+                                campo_y.append(y)
+                            df_acc = df_acc.copy()
+                            df_acc['campo_x'] = campo_x
+                            df_acc['campo_y'] = campo_y
+                        
+                        mudancas_direcao = calcular_mudancas_direcao(df_acc, angulo_limiar)
+                    else:
+                        mudancas_direcao = []
+                        st.warning("⚠️ Limites do estádio não definidos. Mudanças de direção não podem ser calculadas.")
                 
-                bounds = st.session_state.get('bounds_estadio', None)
-                if bounds and 'campo_x' not in df_acc.columns:
-                    campo_x, campo_y = [], []
-                    for _, row in df_acc.iterrows():
-                        x, y = converter_gps_para_campo_cached(row['Latitude'], row['Longitude'], bounds)
-                        campo_x.append(x); campo_y.append(y)
-                    df_acc = df_acc.copy()
-                    df_acc['campo_x'] = campo_x
-                    df_acc['campo_y'] = campo_y
+                st.markdown("---")
+                st.markdown("### 📊 Métricas Detectadas")
                 
-                mudancas_direcao = calcular_mudancas_direcao(df_acc, angulo_limiar) if bounds else []
+                col_a1, col_a2, col_a3, col_a4, col_a5 = st.columns(5)
                 
-                col_a1, col_a2, col_a3 = st.columns(3)
                 with col_a1:
-                    st.metric("Acelerações", len(aceleracoes))
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-value">{len(aceleracoes)}</div>
+                        <div class="metric-label">Acelerações</div>
+                        <div style="font-size:0.7rem">(>{limiar_aceleracao:.1f} m/s²)</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
                 with col_a2:
-                    st.metric("Desacelerações", len(desaceleracoes))
+                    pico_acel = max([a['pico_aceleracao'] for a in aceleracoes], default=0)
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-value">{pico_acel:.2f}</div>
+                        <div class="metric-label">Pico Aceleração (m/s²)</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
                 with col_a3:
-                    st.metric("Mudanças Direção", len(mudancas_direcao))
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-value">{len(desaceleracoes)}</div>
+                        <div class="metric-label">Desacelerações</div>
+                        <div style="font-size:0.7rem">({limiar_desaceleracao:.1f} m/s²)</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col_a4:
+                    pico_desacel = min([d['pico_desaceleracao'] for d in desaceleracoes], default=0)
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-value">{pico_desacel:.2f}</div>
+                        <div class="metric-label">Pico Desaceleração (m/s²)</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col_a5:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-value">{len(mudancas_direcao)}</div>
+                        <div class="metric-label">Mudanças Direção</div>
+                        <div style="font-size:0.7rem">(>{angulo_limiar}°)</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                st.markdown("---")
+                st.markdown("### 📈 Perfil de Aceleração e Desaceleração")
                 
                 fig_acc = go.Figure()
-                fig_acc.add_trace(go.Scatter(x=df_acc['Seconds'], y=df_acc['Acceleration'], mode='lines', name='Aceleração', line=dict(color='#4ecdc4')))
-                fig_acc.add_hline(y=limiar_aceleracao, line_dash="dash", line_color="green")
-                fig_acc.add_hline(y=limiar_desaceleracao, line_dash="dash", line_color="red")
-                fig_acc.update_layout(title="Perfil de Aceleração/Desaceleração", height=500)
+                
+                fig_acc.add_trace(go.Scatter(
+                    x=df_acc['Seconds'], y=df_acc['Acceleration'],
+                    mode='lines', name='Aceleração',
+                    line=dict(color='#4ecdc4', width=2)
+                ))
+                
+                fig_acc.add_hline(y=limiar_aceleracao, line_dash="dash", line_color="green", annotation_text=f"Limiar Aceleração (+{limiar_aceleracao:.1f})")
+                fig_acc.add_hline(y=limiar_desaceleracao, line_dash="dash", line_color="red", annotation_text=f"Limiar Desaceleração ({limiar_desaceleracao:.1f})")
+                
+                for aceleracao in aceleracoes:
+                    fig_acc.add_vrect(
+                        x0=aceleracao['inicio_time'],
+                        x1=aceleracao['fim_time'],
+                        fillcolor="rgba(78, 205, 196, 0.3)",
+                        layer="below",
+                        line_width=0
+                    )
+                
+                for desaceleracao in desaceleracoes:
+                    fig_acc.add_vrect(
+                        x0=desaceleracao['inicio_time'],
+                        x1=desaceleracao['fim_time'],
+                        fillcolor="rgba(231, 76, 60, 0.3)",
+                        layer="below",
+                        line_width=0
+                    )
+                
+                fig_acc.update_layout(
+                    title=f"Perfil de Aceleração/Desaceleração - {periodo_acc}",
+                    xaxis_title="Tempo (s)",
+                    yaxis_title="Aceleração (m/s²)",
+                    height=500,
+                    hovermode='x unified'
+                )
+                
                 st.plotly_chart(fig_acc, use_container_width=True)
                 
                 if aceleracoes:
+                    st.markdown("### 📋 Detalhamento das Acelerações")
                     df_aceleracoes = pd.DataFrame(aceleracoes)
                     df_aceleracoes['inicio_time'] = df_aceleracoes['inicio_time'].apply(lambda x: seconds_to_time_str(x, start_dt_acc))
-                    st.dataframe(df_aceleracoes[['inicio_time', 'duracao', 'pico_aceleracao', 'vel_inicio', 'vel_fim']], use_container_width=True)
+                    df_aceleracoes['fim_time'] = df_aceleracoes['fim_time'].apply(lambda x: seconds_to_time_str(x, start_dt_acc))
+                    df_aceleracoes['duracao'] = df_aceleracoes['duracao'].apply(lambda x: f"{x:.2f}s")
+                    df_aceleracoes['pico_aceleracao'] = df_aceleracoes['pico_aceleracao'].apply(lambda x: f"{x:.2f} m/s²")
+                    df_aceleracoes['vel_inicio'] = df_aceleracoes['vel_inicio'].apply(lambda x: f"{x:.1f} km/h")
+                    df_aceleracoes['vel_fim'] = df_aceleracoes['vel_fim'].apply(lambda x: f"{x:.1f} km/h")
+                    
+                    st.dataframe(df_aceleracoes[['inicio_time', 'fim_time', 'duracao', 'pico_aceleracao', 'vel_inicio', 'vel_fim']], use_container_width=True)
                 
                 if desaceleracoes:
+                    st.markdown("### 📋 Detalhamento das Desacelerações")
                     df_desaceleracoes = pd.DataFrame(desaceleracoes)
                     df_desaceleracoes['inicio_time'] = df_desaceleracoes['inicio_time'].apply(lambda x: seconds_to_time_str(x, start_dt_acc))
-                    st.dataframe(df_desaceleracoes[['inicio_time', 'duracao', 'pico_desaceleracao', 'vel_inicio', 'vel_fim']], use_container_width=True)
+                    df_desaceleracoes['fim_time'] = df_desaceleracoes['fim_time'].apply(lambda x: seconds_to_time_str(x, start_dt_acc))
+                    df_desaceleracoes['duracao'] = df_desaceleracoes['duracao'].apply(lambda x: f"{x:.2f}s")
+                    df_desaceleracoes['pico_desaceleracao'] = df_desaceleracoes['pico_desaceleracao'].apply(lambda x: f"{x:.2f} m/s²")
+                    df_desaceleracoes['vel_inicio'] = df_desaceleracoes['vel_inicio'].apply(lambda x: f"{x:.1f} km/h")
+                    df_desaceleracoes['vel_fim'] = df_desaceleracoes['vel_fim'].apply(lambda x: f"{x:.1f} km/h")
+                    
+                    st.dataframe(df_desaceleracoes[['inicio_time', 'fim_time', 'duracao', 'pico_desaceleracao', 'vel_inicio', 'vel_fim']], use_container_width=True)
+                
+                if mudancas_direcao:
+                    st.markdown("### 📋 Detalhamento das Mudanças de Direção")
+                    df_mudancas = pd.DataFrame(mudancas_direcao)
+                    df_mudancas['tempo'] = df_mudancas['tempo'].apply(lambda x: seconds_to_time_str(x, start_dt_acc))
+                    df_mudancas['angulo'] = df_mudancas['angulo'].apply(lambda x: f"{x:.1f}°")
+                    df_mudancas['velocidade'] = df_mudancas['velocidade'].apply(lambda x: f"{x:.1f} km/h")
+                    
+                    st.dataframe(df_mudancas[['tempo', 'angulo', 'velocidade']], use_container_width=True)
+                
+                if aceleracoes or desaceleracoes or mudancas_direcao:
+                    col_export_a1, col_export_a2, col_export_a3 = st.columns(3)
+                    with col_export_a1:
+                        if aceleracoes:
+                            csv_acc = pd.DataFrame(aceleracoes).to_csv(index=False)
+                            st.download_button("📥 Exportar Acelerações", csv_acc, f"aceleracoes_{selected_atletas[0]}_{periodo_acc}.csv")
+                    with col_export_a2:
+                        if desaceleracoes:
+                            csv_dec = pd.DataFrame(desaceleracoes).to_csv(index=False)
+                            st.download_button("📥 Exportar Desacelerações", csv_dec, f"desaceleracoes_{selected_atletas[0]}_{periodo_acc}.csv")
+                    with col_export_a3:
+                        if mudancas_direcao:
+                            csv_dir = pd.DataFrame(mudancas_direcao).to_csv(index=False)
+                            st.download_button("📥 Exportar Mudanças Direção", csv_dir, f"mudancas_direcao_{selected_atletas[0]}_{periodo_acc}.csv")
             
-            # TAB 7: Comparação Esportiva
+            # TAB 7: COMPARAÇÃO ESPORTIVA
             with tab7:
                 st.subheader("📊 Comparação Esportiva entre Períodos")
                 
@@ -1941,8 +2382,9 @@ if uploaded_files:
                     "Selecione as variáveis para comparação",
                     options=["Velocidade Média (km/h)", "Velocidade Máxima (km/h)", 
                              "Frequência Cardíaca Média (bpm)", "Frequência Cardíaca Máxima (bpm)", 
-                             "Distância Total (m)", "TRIMP Total"],
-                    default=["Velocidade Média (km/h)", "Distância Total (m)", "TRIMP Total"]
+                             "Distância Total (m)", "Tempo Total (min)", "TRIMP Total"],
+                    default=["Velocidade Média (km/h)", "Distância Total (m)", "Frequência Cardíaca Média (bpm)"],
+                    key="var_comparacao"
                 )
                 
                 if var_selecionadas:
@@ -1960,20 +2402,106 @@ if uploaded_files:
                                 row[var] = df_periodo['HeartRate'].max()
                             elif var == "Distância Total (m)":
                                 row[var] = distancias_por_periodo.get(periodo_nome, 0)
+                            elif var == "Tempo Total (min)":
+                                row[var] = tempos_por_periodo.get(periodo_nome, 0) / 60
                             elif var == "TRIMP Total":
-                                trimp_total, _ = calcular_trimp_edwards(df_periodo, df_periodo['HeartRate'].max())
+                                fc_max = df_periodo['HeartRate'].max()
+                                trimp_total, _ = calcular_trimp_edwards(df_periodo, fc_max)
                                 row[var] = trimp_total
                         comparacao_data.append(row)
                     
                     df_comp = pd.DataFrame(comparacao_data)
                     
                     for var in var_selecionadas:
-                        fig_bar = px.bar(df_comp, x='Período', y=var, title=f"<b>{var}</b>", text_auto='.1f')
+                        fig_bar = px.bar(df_comp, x='Período', y=var, title=f"<b>{var}</b>", 
+                                         text_auto='.1f', color='Período',
+                                         color_discrete_sequence=px.colors.qualitative.Set2)
                         fig_bar.update_layout(height=400, showlegend=False)
                         st.plotly_chart(fig_bar, use_container_width=True)
                     
-                    csv_comp = df_comp.to_csv(index=False)
-                    st.download_button("📥 Exportar comparação", csv_comp, "comparacao_periodos.csv")
+                    if len(df_comp) >= 2:
+                        st.markdown("### 🎯 Perfil de Desempenho (Radar)")
+                        
+                        df_radar = df_comp.copy()
+                        for var in var_selecionadas:
+                            max_val = df_radar[var].max()
+                            if max_val > 0:
+                                df_radar[var + " (%)"] = (df_radar[var] / max_val * 100).round(1)
+                        
+                        fig_radar = go.Figure()
+                        radar_cores = ['#00d2ff', '#ff6b6b', '#4ecdc4', '#ffe66d', '#9b59b6', '#e74c3c']
+                        
+                        for idx, (_, row) in enumerate(df_radar.iterrows()):
+                            valores = [row[var + " (%)"] for var in var_selecionadas]
+                            fig_radar.add_trace(go.Scatterpolar(
+                                r=valores,
+                                theta=var_selecionadas,
+                                fill='toself',
+                                name=row['Período'],
+                                line=dict(width=3, color=radar_cores[idx % len(radar_cores)]),
+                                fillcolor=f'rgba({int(radar_cores[idx % len(radar_cores)][1:3], 16)}, {int(radar_cores[idx % len(radar_cores)][3:5], 16)}, {int(radar_cores[idx % len(radar_cores)][5:7], 16)}, 0.3)'
+                            ))
+                        
+                        fig_radar.update_layout(
+                            polar=dict(
+                                radialaxis=dict(
+                                    visible=True,
+                                    range=[0, 100],
+                                    tickvals=[0, 25, 50, 75, 100],
+                                    ticktext=['0%', '25%', '50%', '75%', '100%'],
+                                    gridcolor='rgba(255,255,255,0.2)',
+                                    linecolor='rgba(255,255,255,0.3)'
+                                ),
+                                angularaxis=dict(
+                                    tickfont=dict(size=12, color='white'),
+                                    gridcolor='rgba(255,255,255,0.2)'
+                                ),
+                                bgcolor='rgba(0,0,0,0.2)'
+                            ),
+                            title=dict(
+                                text="<b>Perfil de Desempenho Normalizado</b><br><sup>Comparação entre períodos (quanto maior a área, melhor o desempenho)</sup>",
+                                x=0.5,
+                                font=dict(size=16)
+                            ),
+                            height=600,
+                            legend=dict(
+                                orientation="h",
+                                yanchor="bottom",
+                                y=1.02,
+                                xanchor="center",
+                                x=0.5,
+                                bgcolor='rgba(0,0,0,0.5)',
+                                font=dict(size=12)
+                            ),
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)'
+                        )
+                        st.plotly_chart(fig_radar, use_container_width=True)
+                        
+                        variacao_data = []
+                        for i, row in df_comp.iterrows():
+                            if i == 0:
+                                variacao_data.append({"Período": row['Período'], "Status": "📌 Referência"})
+                            else:
+                                ref = df_comp.iloc[0]
+                                var_dict = {"Período": row['Período']}
+                                for var in var_selecionadas:
+                                    if var in row and var in ref:
+                                        diff = row[var] - ref[var]
+                                        pct = (diff / ref[var] * 100) if ref[var] != 0 else 0
+                                        var_dict[var] = f"{'+' if diff > 0 else ''}{pct:.1f}%"
+                                variacao_data.append(var_dict)
+                        
+                        df_variacao = pd.DataFrame(variacao_data)
+                        st.dataframe(df_variacao, use_container_width=True)
+                        
+                        csv_comp = df_comp.to_csv(index=False)
+                        st.download_button(
+                            "📥 Exportar comparação (CSV)",
+                            csv_comp,
+                            "comparacao_periodos.csv",
+                            use_container_width=True
+                        )
         
         else:
             st.info("👈 Configure os filtros na barra lateral e clique em **PROCESSAR ANÁLISE** para visualizar os resultados.")
@@ -1984,6 +2512,6 @@ else:
         <h2>⚽ ScoutLab - Plataforma de Análise de Performance</h2>
         <p style="font-size: 1.2rem; color: #aaa;">Carregue os arquivos CSV na barra lateral para iniciar a análise</p>
         <p style="margin-top: 30px;">📊 Análise de posicionamento | ⚡ Perfil de aceleração (ASP corrigido) | ❤️ Monitoramento cardíaco | 🎯 Zonas de intensidade | 🚀 Detecção de sprints | 🔄 Acelerações/Desacelerações</p>
-        <p style="margin-top: 15px; font-size: 0.9rem; color: #00d2ff;">✅ Tratamento estatístico robusto com RANSAC e limites fisiológicos</p>
+        <p style="margin-top: 15px; font-size: 0.9rem; color: #00d2ff;">✅ Tratamento estatístico robusto com RANSAC e limites fisiológicos | ✅ Unidades corretas (velocidade em km/h na exibição)</p>
     </div>
     """, unsafe_allow_html=True)
