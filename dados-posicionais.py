@@ -609,6 +609,256 @@ def desenhar_linhas_divisorias(num_linhas, num_colunas):
                                       line=dict(color="rgba(255,255,255,0.7)", width=2, dash="dash")))
     return shapes, linhas_bins, colunas_bins
 
+# ==================== NOVAS FUNÇÕES PARA VISUALIZAÇÕES AVANÇADAS ====================
+
+def calcular_metrica_esforco_acumulado(df):
+    """Calcula métricas de esforço acumulado por zona"""
+    if len(df) < 2:
+        return None
+    
+    # Calcular aceleração instantânea como derivada da velocidade
+    df = df.sort_values('Seconds').copy()
+    df['Accel_deriv'] = df['Velocity'].diff() / df['Seconds'].diff()
+    
+    # Calcular potência (simplificada: velocidade * aceleração)
+    df['Potencia'] = df['Velocity'] * df['Acceleration'].clip(lower=0)
+    
+    # Calcular carga metabólica (simplificada)
+    df['Carga_Metabolica'] = df['Velocity'] ** 2 * df['Acceleration'].clip(lower=0)
+    
+    # Identificar sprints (>25 km/h)
+    df['Is_Sprint'] = df['Velocity'] * 3.6 > 25
+    
+    # Identificar mudanças de direção (desaceleração seguida de aceleração)
+    df['Mudanca_Direcao'] = ((df['Acceleration'] < -2) & (df['Acceleration'].shift(-1) > 2)) | \
+                             ((df['Acceleration'] > 2) & (df['Acceleration'].shift(1) < -2))
+    
+    return df
+
+def criar_visualizacoes_avancadas_campo(df_tat_sample, bounds, periodo_nome, atleta_nome):
+    """Cria visualizações avançadas no campo"""
+    
+    if len(df_tat_sample) < 10:
+        return []
+    
+    figuras = []
+    
+    # 1. Mapa de Calor de Acelerações (Onde o atleta mais acelera)
+    fig_acel = go.Figure()
+    for shape in desenhar_campo_futebol():
+        fig_acel.add_shape(shape)
+    
+    acel_z = df_tat_sample['Acceleration'].clip(lower=0)
+    fig_acel.add_trace(go.Scatter(
+        x=df_tat_sample['campo_x'], 
+        y=df_tat_sample['campo_y'],
+        mode='markers',
+        marker=dict(
+            size=8,
+            color=acel_z,
+            colorscale='RdYlGn',
+            showscale=True,
+            colorbar=dict(title="Aceleração (m/s²)"),
+            opacity=0.6
+        ),
+        text=[f"Acel: {a:.2f} m/s²<br>Vel: {v*3.6:.1f} km/h" for a, v in zip(acel_z, df_tat_sample['Velocity'])],
+        hoverinfo='text',
+        name='Acelerações'
+    ))
+    
+    fig_acel.update_layout(
+        title=f"⚡ Mapa de Acelerações - {atleta_nome} - {periodo_nome}",
+        xaxis_title="Posição (m) - Comprimento",
+        yaxis_title="Posição (m) - Largura",
+        height=500,
+        xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2]),
+        yaxis=dict(range=[Y_MIN-2, Y_MAX+2]),
+        plot_bgcolor='rgba(34,139,34,0.2)'
+    )
+    figuras.append(("⚡ Mapa de Acelerações", fig_acel))
+    
+    # 2. Mapa de Potência (Velocidade x Aceleração)
+    fig_pot = go.Figure()
+    for shape in desenhar_campo_futebol():
+        fig_pot.add_shape(shape)
+    
+    potencia = df_tat_sample['Velocity'] * df_tat_sample['Acceleration'].clip(lower=0)
+    
+    fig_pot.add_trace(go.Scatter(
+        x=df_tat_sample['campo_x'], 
+        y=df_tat_sample['campo_y'],
+        mode='markers',
+        marker=dict(
+            size=8,
+            color=potencia,
+            colorscale='Plasma',
+            showscale=True,
+            colorbar=dict(title="Potência (m²/s³)"),
+            opacity=0.6
+        ),
+        text=[f"Pot: {p:.2f}<br>Vel: {v*3.6:.1f} km/h<br>Acel: {a:.2f}" 
+              for p, v, a in zip(potencia, df_tat_sample['Velocity'], df_tat_sample['Acceleration'])],
+        hoverinfo='text',
+        name='Potência'
+    ))
+    
+    fig_pot.update_layout(
+        title=f"💪 Mapa de Potência - {atleta_nome} - {periodo_nome}",
+        xaxis_title="Posição (m) - Comprimento",
+        yaxis_title="Posição (m) - Largura",
+        height=500,
+        xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2]),
+        yaxis=dict(range=[Y_MIN-2, Y_MAX+2]),
+        plot_bgcolor='rgba(34,139,34,0.2)'
+    )
+    figuras.append(("💪 Mapa de Potência", fig_pot))
+    
+    # 3. Mapa de Sprints (Zonas onde ocorrem sprints)
+    fig_sprints = go.Figure()
+    for shape in desenhar_campo_futebol():
+        fig_sprints.add_shape(shape)
+    
+    df_sprints = df_tat_sample[df_tat_sample['Velocity'] * 3.6 > 25].copy()
+    
+    if len(df_sprints) > 0:
+        fig_sprints.add_trace(go.Scatter(
+            x=df_sprints['campo_x'], 
+            y=df_sprints['campo_y'],
+            mode='markers',
+            marker=dict(
+                size=12,
+                color='red',
+                symbol='star',
+                opacity=0.8,
+                line=dict(width=1, color='white')
+            ),
+            text=[f"Sprint!<br>Vel: {v*3.6:.1f} km/h<br>Acel: {a:.2f}" 
+                  for v, a in zip(df_sprints['Velocity'], df_sprints['Acceleration'])],
+            hoverinfo='text',
+            name='Sprints'
+        ))
+    
+    fig_sprints.update_layout(
+        title=f"🏃 Sprints (>{25} km/h) - {atleta_nome} - {periodo_nome}",
+        xaxis_title="Posição (m) - Comprimento",
+        yaxis_title="Posição (m) - Largura",
+        height=500,
+        xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2]),
+        yaxis=dict(range=[Y_MIN-2, Y_MAX+2]),
+        plot_bgcolor='rgba(34,139,34,0.2)'
+    )
+    figuras.append(("🏃 Mapa de Sprints", fig_sprints))
+    
+    # 4. Mapa de Frequência Cardíaca (sobreposto no campo)
+    fig_fc_campo = go.Figure()
+    for shape in desenhar_campo_futebol():
+        fig_fc_campo.add_shape(shape)
+    
+    fig_fc_campo.add_trace(go.Scatter(
+        x=df_tat_sample['campo_x'], 
+        y=df_tat_sample['campo_y'],
+        mode='markers',
+        marker=dict(
+            size=8,
+            color=df_tat_sample['HeartRate'],
+            colorscale='Hot',
+            showscale=True,
+            colorbar=dict(title="FC (bpm)"),
+            opacity=0.6
+        ),
+        text=[f"FC: {fc:.0f} bpm<br>Vel: {v*3.6:.1f} km/h" 
+              for fc, v in zip(df_tat_sample['HeartRate'], df_tat_sample['Velocity'])],
+        hoverinfo='text',
+        name='Frequência Cardíaca'
+    ))
+    
+    fig_fc_campo.update_layout(
+        title=f"❤️ Mapa de Frequência Cardíaca - {atleta_nome} - {periodo_nome}",
+        xaxis_title="Posição (m) - Comprimento",
+        yaxis_title="Posição (m) - Largura",
+        height=500,
+        xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2]),
+        yaxis=dict(range=[Y_MIN-2, Y_MAX+2]),
+        plot_bgcolor='rgba(34,139,34,0.2)'
+    )
+    figuras.append(("❤️ Mapa de Frequência Cardíaca", fig_fc_campo))
+    
+    # 5. Mapa de Eficiência (Relação Velocidade/FC)
+    fig_eficiencia = go.Figure()
+    for shape in desenhar_campo_futebol():
+        fig_eficiencia.add_shape(shape)
+    
+    eficiencia = df_tat_sample['Velocity'] / (df_tat_sample['HeartRate'] / 100)
+    eficiencia = eficiencia.clip(upper=10)
+    
+    fig_eficiencia.add_trace(go.Scatter(
+        x=df_tat_sample['campo_x'], 
+        y=df_tat_sample['campo_y'],
+        mode='markers',
+        marker=dict(
+            size=8,
+            color=eficiencia,
+            colorscale='Viridis',
+            showscale=True,
+            colorbar=dict(title="Eficiência (m/s por 100bpm)"),
+            opacity=0.6
+        ),
+        text=[f"Eficiência: {e:.2f}<br>Vel: {v*3.6:.1f} km/h<br>FC: {fc:.0f}" 
+              for e, v, fc in zip(eficiencia, df_tat_sample['Velocity'], df_tat_sample['HeartRate'])],
+        hoverinfo='text',
+        name='Eficiência'
+    ))
+    
+    fig_eficiencia.update_layout(
+        title=f"🎯 Mapa de Eficiência (Vel/FC) - {atleta_nome} - {periodo_nome}",
+        xaxis_title="Posição (m) - Comprimento",
+        yaxis_title="Posição (m) - Largura",
+        height=500,
+        xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2]),
+        yaxis=dict(range=[Y_MIN-2, Y_MAX+2]),
+        plot_bgcolor='rgba(34,139,34,0.2)'
+    )
+    figuras.append(("🎯 Mapa de Eficiência", fig_eficiencia))
+    
+    # 6. Análise de Mudanças de Direção
+    df_tat_sample['Accel_change'] = df_tat_sample['Acceleration'].diff()
+    df_direcao = df_tat_sample[abs(df_tat_sample['Accel_change']) > 3].copy()
+    
+    fig_direcao = go.Figure()
+    for shape in desenhar_campo_futebol():
+        fig_direcao.add_shape(shape)
+    
+    if len(df_direcao) > 0:
+        fig_direcao.add_trace(go.Scatter(
+            x=df_direcao['campo_x'], 
+            y=df_direcao['campo_y'],
+            mode='markers',
+            marker=dict(
+                size=10,
+                color='orange',
+                symbol='triangle-up',
+                opacity=0.8,
+                line=dict(width=1, color='white')
+            ),
+            text=[f"Mudança de Direção<br>ΔAcel: {ac:.2f}<br>Vel: {v*3.6:.1f} km/h" 
+                  for ac, v in zip(df_direcao['Accel_change'], df_direcao['Velocity'])],
+            hoverinfo='text',
+            name='Mudanças de Direção'
+        ))
+    
+    fig_direcao.update_layout(
+        title=f"🔄 Mudanças de Direção - {atleta_nome} - {periodo_nome}",
+        xaxis_title="Posição (m) - Comprimento",
+        yaxis_title="Posição (m) - Largura",
+        height=500,
+        xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2]),
+        yaxis=dict(range=[Y_MIN-2, Y_MAX+2]),
+        plot_bgcolor='rgba(34,139,34,0.2)'
+    )
+    figuras.append(("🔄 Mudanças de Direção", fig_direcao))
+    
+    return figuras
+
 # ==================== BANCO DE DADOS ====================
 
 DB_PATH = Path("estadios.db")
@@ -1168,7 +1418,6 @@ if uploaded_files:
         st.sidebar.markdown("---")
         st.sidebar.header("🎨 7. Opções de Visualização")
         show_field = st.sidebar.checkbox("Mostrar campo", value=True, key="show_field")
-        animacao_3d = st.sidebar.checkbox("Modo 3D (Mapa Tático)", value=False, key="animacao_3d")
         
         # 8. Seleção de Períodos para Análise
         st.sidebar.markdown("---")
@@ -1379,7 +1628,7 @@ if uploaded_files:
                 "📊 Comparação Esportiva"
             ])
             
-            # TAB 1: MAPA TÁTICO
+            # TAB 1: MAPA TÁTICO (SEM 3D)
             with tab1:
                 st.subheader("🗺️ Mapa Tático de Posicionamento")
                 
@@ -1402,81 +1651,51 @@ if uploaded_files:
                 else:
                     center_lat, center_lon = df_mapa['Latitude'].mean(), df_mapa['Longitude'].mean()
                 
-                if animacao_3d:
-                    # Visualização 3D
-                    fig_map_3d = go.Figure()
-                    
-                    # Adicionar trajetória 3D
-                    fig_map_3d.add_trace(go.Scatter3d(
-                        x=df_mapa['Longitude'], 
-                        y=df_mapa['Latitude'], 
-                        z=df_mapa['Seconds'] / 60,
-                        mode='lines+markers',
-                        marker=dict(size=3, color=df_mapa['Velocity'] * 3.6, colorscale='Viridis', showscale=True,
-                                   colorbar=dict(title="Velocidade (km/h)")),
-                        line=dict(width=2, color='cyan'),
-                        name='Trajetória 3D',
-                        text=[f"Tempo: {seconds_to_time_str(row['Seconds'], row['start_datetime'])}<br>Vel: {row['Velocity'] * 3.6:.1f} km/h" for _, row in df_mapa.iterrows()],
-                        hoverinfo='text'
-                    ))
-                    
-                    fig_map_3d.update_layout(
-                        title=f"Trajetória 3D - {atleta_mapa if atleta_mapa != 'Todos' else 'Múltiplos atletas'} - {periodo_mapa}",
-                        scene=dict(
-                            xaxis_title="Longitude",
-                            yaxis_title="Latitude", 
-                            zaxis_title="Tempo (minutos)",
-                            camera=dict(eye=dict(x=1.5, y=1.5, z=1.5))
-                        ),
-                        height=700
-                    )
-                    st.plotly_chart(fig_map_3d, use_container_width=True)
+                fig_map = go.Figure()
+                if show_field and bounds:
+                    lat_min, lat_max, lon_min, lon_max = bounds
+                    fig_map.add_shape(type="rect", x0=lon_min, x1=lon_max, y0=lat_min, y1=lat_max,
+                                      line=dict(color="white", width=2), fillcolor="rgba(34,139,34,0.2)")
+                    fig_map.add_shape(type="line", x0=(lon_min+lon_max)/2, x1=(lon_min+lon_max)/2, y0=lat_min, y1=lat_max,
+                                      line=dict(color="white", width=1, dash="dash"))
+                
+                # Plotar trajetórias por atleta com cores diferentes
+                if atleta_mapa == "Todos":
+                    atletas_unicos = df_mapa['Atleta'].unique()
+                    cores = px.colors.qualitative.Plotly
+                    for idx, atleta in enumerate(atletas_unicos):
+                        df_atleta = df_mapa[df_mapa['Atleta'] == atleta]
+                        if len(df_atleta) > 5000:
+                            df_atleta = df_atleta.sample(5000, random_state=42)
+                        
+                        hover_texts = [f"<b>{atleta}</b><br>{seconds_to_time_str(row['Seconds'], row['start_datetime'])}<br>Vel: {row['Velocity'] * 3.6:.1f} km/h<br>FC: {row['HeartRate']:.0f} bpm" for _, row in df_atleta.iterrows()]
+                        fig_map.add_trace(go.Scattermapbox(lat=df_atleta['Latitude'], lon=df_atleta['Longitude'], mode='markers',
+                                                           marker=dict(size=4, color=cores[idx % len(cores)], symbol='circle'),
+                                                           text=hover_texts, hoverinfo='text', name=atleta))
                 else:
-                    fig_map = go.Figure()
-                    if show_field and bounds:
-                        lat_min, lat_max, lon_min, lon_max = bounds
-                        fig_map.add_shape(type="rect", x0=lon_min, x1=lon_max, y0=lat_min, y1=lat_max,
-                                          line=dict(color="white", width=2), fillcolor="rgba(34,139,34,0.2)")
-                        fig_map.add_shape(type="line", x0=(lon_min+lon_max)/2, x1=(lon_min+lon_max)/2, y0=lat_min, y1=lat_max,
-                                          line=dict(color="white", width=1, dash="dash"))
-                    
-                    # Plotar trajetórias por atleta com cores diferentes
-                    if atleta_mapa == "Todos":
-                        atletas_unicos = df_mapa['Atleta'].unique()
-                        cores = px.colors.qualitative.Plotly
-                        for idx, atleta in enumerate(atletas_unicos):
-                            df_atleta = df_mapa[df_mapa['Atleta'] == atleta]
-                            if len(df_atleta) > 5000:
-                                df_atleta = df_atleta.sample(5000, random_state=42)
-                            
-                            hover_texts = [f"<b>{atleta}</b><br>{seconds_to_time_str(row['Seconds'], row['start_datetime'])}<br>Vel: {row['Velocity'] * 3.6:.1f} km/h<br>FC: {row['HeartRate']:.0f} bpm" for _, row in df_atleta.iterrows()]
-                            fig_map.add_trace(go.Scattermapbox(lat=df_atleta['Latitude'], lon=df_atleta['Longitude'], mode='markers',
-                                                               marker=dict(size=4, color=cores[idx % len(cores)], symbol='circle'),
-                                                               text=hover_texts, hoverinfo='text', name=atleta))
+                    if len(df_mapa) > 5000:
+                        df_mapa_plot = df_mapa.sample(5000, random_state=42)
                     else:
-                        if len(df_mapa) > 5000:
-                            df_mapa_plot = df_mapa.sample(5000, random_state=42)
-                        else:
-                            df_mapa_plot = df_mapa
-                        
-                        hover_texts = [f"<b>{seconds_to_time_str(row['Seconds'], row['start_datetime'])}</b><br>Vel: {row['Velocity'] * 3.6:.1f} km/h<br>FC: {row['HeartRate']:.0f} bpm" for _, row in df_mapa_plot.iterrows()]
-                        fig_map.add_trace(go.Scattermapbox(lat=df_mapa_plot['Latitude'], lon=df_mapa_plot['Longitude'], mode='markers',
-                                                           marker=dict(size=4, color=df_mapa_plot['Velocity'] * 3.6, colorscale='Viridis', showscale=True,
-                                                                      colorbar=dict(title="Velocidade (km/h)")), text=hover_texts, hoverinfo='text', name='Percurso'))
-                        
-                        if len(df_mapa_plot) > 0:
-                            fig_map.add_trace(go.Scattermapbox(lat=[df_mapa_plot['Latitude'].iloc[0]], lon=[df_mapa_plot['Longitude'].iloc[0]],
-                                                               mode='markers', marker=dict(size=16, color='green'), name='Início'))
-                            fig_map.add_trace(go.Scattermapbox(lat=[df_mapa_plot['Latitude'].iloc[-1]], lon=[df_mapa_plot['Longitude'].iloc[-1]],
-                                                               mode='markers', marker=dict(size=16, color='red'), name='Fim'))
+                        df_mapa_plot = df_mapa
                     
-                    zoom = 18 if bounds else 15
-                    fig_map.update_layout(mapbox=dict(style="open-street-map", center=dict(lat=center_lat, lon=center_lon), zoom=zoom),
-                                          height=600, margin=dict(l=0, r=0, t=30, b=0),
-                                          title=f"Trajetória - {atleta_mapa if atleta_mapa != 'Todos' else 'Múltiplos atletas'} - {periodo_mapa} - {st.session_state.get('nome_estadio', 'Campo')}")
-                    st.plotly_chart(fig_map, use_container_width=True)
+                    hover_texts = [f"<b>{seconds_to_time_str(row['Seconds'], row['start_datetime'])}</b><br>Vel: {row['Velocity'] * 3.6:.1f} km/h<br>FC: {row['HeartRate']:.0f} bpm" for _, row in df_mapa_plot.iterrows()]
+                    fig_map.add_trace(go.Scattermapbox(lat=df_mapa_plot['Latitude'], lon=df_mapa_plot['Longitude'], mode='markers',
+                                                       marker=dict(size=4, color=df_mapa_plot['Velocity'] * 3.6, colorscale='Viridis', showscale=True,
+                                                                  colorbar=dict(title="Velocidade (km/h)")), text=hover_texts, hoverinfo='text', name='Percurso'))
+                    
+                    if len(df_mapa_plot) > 0:
+                        fig_map.add_trace(go.Scattermapbox(lat=[df_mapa_plot['Latitude'].iloc[0]], lon=[df_mapa_plot['Longitude'].iloc[0]],
+                                                           mode='markers', marker=dict(size=16, color='green'), name='Início'))
+                        fig_map.add_trace(go.Scattermapbox(lat=[df_mapa_plot['Latitude'].iloc[-1]], lon=[df_mapa_plot['Longitude'].iloc[-1]],
+                                                           mode='markers', marker=dict(size=16, color='red'), name='Fim'))
+                
+                zoom = 18 if bounds else 15
+                fig_map.update_layout(mapbox=dict(style="open-street-map", center=dict(lat=center_lat, lon=center_lon), zoom=zoom),
+                                      height=600, margin=dict(l=0, r=0, t=30, b=0),
+                                      title=f"Trajetória - {atleta_mapa if atleta_mapa != 'Todos' else 'Múltiplos atletas'} - {periodo_mapa} - {st.session_state.get('nome_estadio', 'Campo')}")
+                st.plotly_chart(fig_map, use_container_width=True)
             
-            # TAB 2: ANÁLISE POR ZONAS
+            # TAB 2: ANÁLISE POR ZONAS (COM NOVAS VISUALIZAÇÕES)
             with tab2:
                 st.subheader("📐 Análise Tática por Zonas do Campo")
                 st.markdown(f"Campo com dimensões oficiais: **{CAMPO_COMPRIMENTO}m x {CAMPO_LARGURA}m**")
@@ -1526,6 +1745,17 @@ if uploaded_files:
                     st.warning("⚠️ Limites do estádio não definidos.")
                     st.stop()
                 
+                # Visualizações avançadas
+                st.markdown("### 🎯 Visualizações Avançadas de Performance")
+                visualizacoes_avancadas = criar_visualizacoes_avancadas_campo(df_tat_sample, bounds, periodo_tatica, atleta_tatica)
+                
+                for titulo, fig in visualizacoes_avancadas:
+                    with st.expander(f"{titulo}", expanded=False):
+                        st.plotly_chart(fig, use_container_width=True)
+                
+                # Análise de zonas tradicional
+                st.markdown("### 🗺️ Análise por Zonas do Campo")
+                
                 col_lin, col_col = st.columns(2)
                 with col_lin:
                     num_linhas = st.number_input("Linhas (divisão horizontal)", 1, 8, 3, key="num_linhas")
@@ -1566,7 +1796,6 @@ if uploaded_files:
                 zona_metrics['Vel_Média'] = zona_metrics['Vel_Média'] * 3.6
                 zona_metrics['Vel_Máx'] = zona_metrics['Vel_Máx'] * 3.6
                 
-                st.markdown("### 🗺️ Visualização Tática")
                 viz_type = st.radio("Tipo de visualização", 
                                    ["Trajetória por zona", "Mapa de calor - Tempo", "Mapa de calor - Velocidade", "Mapa de calor - Densidade (KDE)"], 
                                    horizontal=True)
@@ -1663,7 +1892,7 @@ if uploaded_files:
                 csv_tatico = zona_metrics.reset_index().to_csv(index=False)
                 st.download_button("📥 Exportar análise tática", csv_tatico, f"analise_tatica_{atleta_tatica}_{periodo_tatica}.csv")
             
-            # TAB 3: PERFIL ACELERAÇÃO-VELOCIDADE
+            # TAB 3: PERFIL ACELERAÇÃO-VELOCIDADE (COM LINHA DE ACELERAÇÃO MÁXIMA)
             with tab3:
                 st.subheader("⚡ Perfil Aceleração-Velocidade (Acceleration-Speed Profile)")
                 
@@ -1744,6 +1973,37 @@ if uploaded_files:
                                 name=f'{atleta} - Modelo',
                                 line=dict(color=cores_asp[idx % len(cores_asp)], width=3, dash='dash'),
                                 hovertemplate=f'{atleta}<br>a = {metrics["a0"]:.2f} × (1 - v/{metrics["v0"]:.2f})<br>v: %{{x:.2f}} m/s<br>a: %{{y:.2f}} m/s²<extra></extra>'
+                            ))
+                            
+                            # Adicionar linha de aceleração máxima (início na extremidade superior esquerda até o ponto de velocidade máxima)
+                            v_max_ponto = metrics['v_max']
+                            a_max_ponto = metrics['a0']
+                            
+                            # Linha horizontal de aceleração máxima
+                            fig_asp.add_trace(go.Scatter(
+                                x=[0, v_max_ponto], y=[a_max_ponto, a_max_ponto],
+                                mode='lines',
+                                name=f'{atleta} - Aceleração Máxima',
+                                line=dict(color='red', width=2, dash='dot'),
+                                hovertemplate='Aceleração Máxima: {:.2f} m/s²<extra></extra>'.format(a_max_ponto)
+                            ))
+                            
+                            # Linha vertical de velocidade máxima
+                            fig_asp.add_trace(go.Scatter(
+                                x=[v_max_ponto, v_max_ponto], y=[0, a_max_ponto],
+                                mode='lines',
+                                name=f'{atleta} - Velocidade Máxima',
+                                line=dict(color='orange', width=2, dash='dot'),
+                                hovertemplate='Velocidade Máxima: {:.2f} m/s ({:.1f} km/h)<extra></extra>'.format(v_max_ponto, v_max_ponto * 3.6)
+                            ))
+                            
+                            # Ponto de velocidade máxima
+                            fig_asp.add_trace(go.Scatter(
+                                x=[v_max_ponto], y=[a_max_ponto],
+                                mode='markers',
+                                name=f'{atleta} - Ponto Máximo',
+                                marker=dict(size=12, color='red', symbol='star', line=dict(width=2, color='white')),
+                                hovertemplate=f'{atleta}<br>Vel Máx: {v_max_ponto:.2f} m/s ({v_max_ponto*3.6:.1f} km/h)<br>Acel no ponto: {a_max_ponto:.2f} m/s²<extra></extra>'
                             ))
                     
                     fig_asp.update_layout(
