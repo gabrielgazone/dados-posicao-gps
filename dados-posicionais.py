@@ -36,12 +36,24 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS personalizado
+# CSS personalizado - VISUAL INOVADOR
 st.markdown("""
 <style>
     @keyframes fadeIn {
         from { opacity: 0; transform: translateY(20px); }
         to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes glow {
+        0% { box-shadow: 0 0 5px rgba(0, 210, 255, 0.3); }
+        50% { box-shadow: 0 0 20px rgba(0, 210, 255, 0.6); }
+        100% { box-shadow: 0 0 5px rgba(0, 210, 255, 0.3); }
+    }
+    @keyframes slideIn {
+        from { opacity: 0; transform: translateX(-20px); }
+        to { opacity: 1; transform: translateX(0); }
+    }
+    .stApp {
+        background: linear-gradient(135deg, #0a0a1a 0%, #0f0f2a 50%, #1a1a3a 100%);
     }
     .metric-card {
         background: linear-gradient(135deg, rgba(26, 26, 46, 0.95) 0%, rgba(22, 33, 62, 0.95) 100%);
@@ -55,17 +67,19 @@ st.markdown("""
         animation: fadeIn 0.5s ease-out;
     }
     .metric-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 12px 40px rgba(0, 210, 255, 0.2);
+        transform: translateY(-5px) scale(1.02);
+        box-shadow: 0 12px 40px rgba(0, 210, 255, 0.3);
         border-color: rgba(0, 210, 255, 0.8);
+        animation: glow 1.5s infinite;
     }
     .metric-value {
         font-size: 2.5rem;
         font-weight: bold;
-        background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
+        background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 50%, #00ff88 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
+        text-shadow: 0 0 20px rgba(0, 210, 255, 0.3);
     }
     .metric-label {
         font-size: 0.85rem;
@@ -76,10 +90,11 @@ st.markdown("""
     }
     .stTabs [data-baseweb="tab-list"] {
         gap: 12px;
-        background: rgba(0, 0, 0, 0.3);
+        background: rgba(0, 0, 0, 0.5);
         padding: 10px;
         border-radius: 50px;
         backdrop-filter: blur(10px);
+        border: 1px solid rgba(0, 210, 255, 0.2);
     }
     .stTabs [data-baseweb="tab"] {
         background: rgba(255, 255, 255, 0.05);
@@ -88,52 +103,63 @@ st.markdown("""
         font-weight: 600;
         transition: all 0.3s ease;
         border: none;
+        color: #ccc;
     }
     .stTabs [data-baseweb="tab"]:hover {
         background: rgba(0, 210, 255, 0.2);
+        transform: translateY(-2px);
     }
     .stTabs [aria-selected="true"] {
         background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
         color: white;
         box-shadow: 0 0 20px rgba(0, 210, 255, 0.5);
+        animation: glow 2s infinite;
     }
     .main-header {
         background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 50%, #00ff88 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
-        font-size: 2.8rem;
+        font-size: 3rem;
         font-weight: bold;
         text-align: center;
         margin-bottom: 20px;
         animation: fadeIn 0.8s ease-out;
+        text-shadow: 0 0 30px rgba(0, 210, 255, 0.5);
     }
     .sub-header {
         text-align: center;
-        color: #00d2ff;
-        font-size: 1.1rem;
+        background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        font-size: 1.2rem;
         margin-bottom: 30px;
-        letter-spacing: 1px;
+        letter-spacing: 2px;
+        animation: slideIn 0.6s ease-out;
     }
     .stButton > button {
         background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
         border: none;
         border-radius: 50px;
-        padding: 12px 24px;
+        padding: 12px 28px;
         font-weight: bold;
         font-size: 1rem;
         transition: all 0.3s ease;
         box-shadow: 0 4px 15px rgba(0, 210, 255, 0.3);
+        animation: fadeIn 0.5s ease-out;
     }
     .stButton > button:hover {
-        transform: scale(1.02);
-        box-shadow: 0 8px 25px rgba(0, 210, 255, 0.5);
+        transform: scale(1.05) translateY(-2px);
+        box-shadow: 0 8px 30px rgba(0, 210, 255, 0.6);
     }
     .zone-selector {
-        background: rgba(0, 0, 0, 0.3);
+        background: linear-gradient(135deg, rgba(0, 0, 0, 0.5) 0%, rgba(26, 26, 46, 0.5) 100%);
         border-radius: 15px;
         padding: 15px;
         margin-bottom: 20px;
+        border: 1px solid rgba(0, 210, 255, 0.3);
+        backdrop-filter: blur(10px);
     }
     .warning-card {
         background: rgba(255, 100, 100, 0.2);
@@ -141,6 +167,7 @@ st.markdown("""
         padding: 10px;
         border-radius: 8px;
         margin: 10px 0;
+        animation: slideIn 0.3s ease-out;
     }
     .info-card {
         background: rgba(0, 210, 255, 0.1);
@@ -148,6 +175,58 @@ st.markdown("""
         padding: 10px;
         border-radius: 8px;
         margin: 10px 0;
+        animation: slideIn 0.3s ease-out;
+    }
+    .success-card {
+        background: linear-gradient(135deg, rgba(0, 255, 136, 0.1) 0%, rgba(0, 210, 255, 0.1) 100%);
+        border-left: 4px solid #00ff88;
+        padding: 10px;
+        border-radius: 8px;
+        margin: 10px 0;
+        animation: slideIn 0.3s ease-out;
+    }
+    .stat-badge {
+        background: linear-gradient(135deg, #00d2ff20 0%, #3a7bd520 100%);
+        border-radius: 10px;
+        padding: 8px 15px;
+        text-align: center;
+        border: 1px solid rgba(0, 210, 255, 0.3);
+        transition: all 0.3s ease;
+    }
+    .stat-badge:hover {
+        transform: scale(1.05);
+        border-color: rgba(0, 210, 255, 0.8);
+    }
+    .glass-card {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(10px);
+        border-radius: 20px;
+        padding: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        transition: all 0.3s ease;
+    }
+    .glass-card:hover {
+        border-color: rgba(0, 210, 255, 0.5);
+        box-shadow: 0 8px 32px rgba(0, 210, 255, 0.1);
+    }
+    div[data-testid="stSelectbox"] > div {
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 10px;
+        border: 1px solid rgba(0, 210, 255, 0.3);
+    }
+    div[data-testid="stMultiSelect"] > div {
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 10px;
+        border: 1px solid rgba(0, 210, 255, 0.3);
+    }
+    .stSlider > div > div {
+        background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
+    }
+    hr {
+        background: linear-gradient(90deg, transparent, #00d2ff, transparent);
+        height: 2px;
+        border: none;
+        margin: 20px 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -705,7 +784,7 @@ def load_data(uploaded_file):
 
 # ==================== FUNÇÃO PARA GERAR PDF ====================
 
-def gerar_relatorio_pdf(dfs_por_periodo, distancias_por_periodo, tempos_por_periodo, selected_atletas, periodo_atual):
+def gerar_relatorio_pdf(dfs_por_periodo, distancias_por_periodo, tempos_por_periodo, selected_atletas, periodo_atual, selected_atletas_nomes):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=72)
     styles = getSampleStyleSheet()
@@ -716,7 +795,8 @@ def gerar_relatorio_pdf(dfs_por_periodo, distancias_por_periodo, tempos_por_peri
     story.append(Paragraph("ScoutLab - Relatório de Performance Esportiva", title_style))
     story.append(Spacer(1, 12))
     
-    story.append(Paragraph(f"Atleta: {selected_atletas[0] if selected_atletas else 'Não identificado'}", styles['Heading2']))
+    atletas_str = ", ".join(selected_atletas_nomes) if selected_atletas_nomes else "Não identificado"
+    story.append(Paragraph(f"Atleta(s): {atletas_str}", styles['Heading2']))
     story.append(Paragraph(f"Período analisado: {periodo_atual}", styles['Normal']))
     story.append(Paragraph(f"Data do relatório: {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
     story.append(Spacer(1, 20))
@@ -791,6 +871,7 @@ if uploaded_files:
             all_atletas = []
             all_periodos = []
             all_start_datetimes = []
+            all_filenames = []
             
             for file in uploaded_files:
                 df, atleta, periodo, start_datetime = load_data(file)
@@ -799,19 +880,25 @@ if uploaded_files:
                     all_atletas.append(atleta)
                     all_periodos.append(periodo)
                     all_start_datetimes.append(start_datetime)
+                    all_filenames.append(file.name)
             
             if all_data:
                 st.session_state.dados_carregados = all_data
                 st.session_state.atletas = all_atletas
                 st.session_state.periodos_orig = all_periodos
                 st.session_state.start_datetimes = all_start_datetimes
+                st.session_state.filenames = all_filenames
                 st.session_state.reference_datetime = all_start_datetimes[0] if all_start_datetimes[0] is not None else None
                 st.session_state.arquivos_anteriores = [f.name for f in uploaded_files]
                 st.session_state.dados_prontos = True
                 
-                st.markdown('<div class="info-card">', unsafe_allow_html=True)
+                st.markdown('<div class="success-card">', unsafe_allow_html=True)
                 st.success(f"✅ {len(all_data)} arquivos carregados com sucesso. Dados validados com limites fisiológicos (velocidade máxima: {VEL_MAX_HUMANA_MS*3.6:.0f} km/h, aceleração: {ACEL_MAX_HUMANA_MS2:.0f} m/s²)")
                 st.markdown('</div>', unsafe_allow_html=True)
+                
+                # Mostrar atletas carregados
+                atletas_list = ", ".join([f"{a} ({p})" for a, p in zip(all_atletas, all_periodos)])
+                st.markdown(f'<div class="info-card">📋 Atletas carregados: {atletas_list}</div>', unsafe_allow_html=True)
             else:
                 st.session_state.dados_prontos = False
                 st.error("❌ Nenhum arquivo válido processado.")
@@ -1034,53 +1121,60 @@ if uploaded_files:
             start_time_min, end_time_min = tempo_range
             start_time, end_time = start_time_min * 60, end_time_min * 60
         
-        # 6. Seleção de Atletas
+        # 6. Seleção de Atletas - MULTIPLA SELEÇÃO MELHORADA
         st.sidebar.markdown("---")
         st.sidebar.header("🏅 6. Selecionar Atleta(s)")
         
-        atleta_options = []
-        valid_indices = []
+        # Criar opções de seleção com "Todos os atletas" como opção especial
+        atleta_options_display = ["🏆 Todos os atletas"]
+        atleta_mapping = []  # Mapeamento para os índices reais
         
         for i, (atleta, periodo) in enumerate(zip(st.session_state.atletas, st.session_state.periodos_orig)):
-            # Validar se o atleta é válido
             if atleta and atleta != "Não identificado" and not atleta.startswith('#'):
                 display_name = f"{atleta} - {periodo}" if periodo and periodo != "Não identificado" and not periodo.startswith('#') else atleta
-                atleta_options.append(display_name)
-                valid_indices.append(i)
+                atleta_options_display.append(display_name)
+                atleta_mapping.append(i)
             elif periodo and periodo != "Não identificado" and not periodo.startswith('#'):
-                # Se o período é válido mas o atleta não
                 display_name = f"Atleta {i+1} - {periodo}"
-                atleta_options.append(display_name)
-                valid_indices.append(i)
+                atleta_options_display.append(display_name)
+                atleta_mapping.append(i)
             else:
-                # Fallback para nomes genéricos
                 display_name = f"Atleta {i+1}"
-                atleta_options.append(display_name)
-                valid_indices.append(i)
+                atleta_options_display.append(display_name)
+                atleta_mapping.append(i)
         
-        if atleta_options:
-            selected_indices = st.sidebar.multiselect(
-                "Escolha os atletas",
-                options=range(len(atleta_options)),
-                format_func=lambda x: atleta_options[x],
-                default=[0] if len(atleta_options) > 0 else []
-            )
-            
-            # Mapear de volta para os índices originais
-            selected_original_indices = [valid_indices[i] for i in selected_indices]
+        # Seleção múltipla de atletas
+        selected_atleta_indices_display = st.sidebar.multiselect(
+            "Escolha os atletas",
+            options=range(len(atleta_options_display)),
+            format_func=lambda x: atleta_options_display[x],
+            default=[0] if len(atleta_options_display) > 0 else [],
+            help="Selecione 'Todos os atletas' para visualizar todos ou escolha atletas específicos"
+        )
+        
+        # Processar a seleção
+        if 0 in selected_atleta_indices_display:
+            # Selecionou "Todos os atletas"
+            selected_original_indices = list(range(len(st.session_state.atletas)))
+            selected_atletas_nomes = st.session_state.atletas
+            st.sidebar.success(f"✅ {len(selected_original_indices)} atletas selecionados")
         else:
-            selected_original_indices = []
+            # Selecionou atletas específicos
+            selected_original_indices = [atleta_mapping[i-1] for i in selected_atleta_indices_display if i > 0]
+            selected_atletas_nomes = [st.session_state.atletas[i] for i in selected_original_indices]
+            st.sidebar.info(f"✅ {len(selected_original_indices)} atleta(s) selecionado(s)")
         
         # 7. Opções de Visualização
         st.sidebar.markdown("---")
         st.sidebar.header("🎨 7. Opções de Visualização")
         show_field = st.sidebar.checkbox("Mostrar campo", value=True, key="show_field")
+        animacao_3d = st.sidebar.checkbox("Modo 3D (Mapa Tático)", value=False, key="animacao_3d")
         
         # 8. Seleção de Períodos para Análise
         st.sidebar.markdown("---")
         st.sidebar.header("📊 8. Selecionar Períodos para Análise")
         
-        opcoes_periodos_analise = ["Todos os períodos"] + [p['nome'] for p in st.session_state.periodos_config]
+        opcoes_periodos_analise = ["📅 Todos os períodos"] + [p['nome'] for p in st.session_state.periodos_config]
         periodos_analise_indices = st.sidebar.multiselect(
             "Períodos para análise",
             options=range(len(opcoes_periodos_analise)),
@@ -1195,6 +1289,7 @@ if uploaded_files:
             st.session_state.distancias_por_periodo = distancias_por_periodo
             st.session_state.tempos_por_periodo = tempos_por_periodo
             st.session_state.selected_atletas = selected_atletas
+            st.session_state.selected_atletas_nomes = selected_atletas_nomes
             st.session_state.analise_processada = True
         
         # ==================== EXIBIÇÃO DAS ANÁLISES ====================
@@ -1203,17 +1298,19 @@ if uploaded_files:
             distancias_por_periodo = st.session_state.distancias_por_periodo
             tempos_por_periodo = st.session_state.tempos_por_periodo
             selected_atletas = st.session_state.selected_atletas
+            selected_atletas_nomes = st.session_state.selected_atletas_nomes
             
             # Botão para gerar relatório PDF
             col_pdf1, col_pdf2, col_pdf3 = st.columns([1, 2, 1])
             with col_pdf2:
                 if st.button("📄 GERAR RELATÓRIO PDF", type="primary", use_container_width=True):
                     periodo_atual = list(dfs_por_periodo.keys())[0]
-                    pdf_buffer = gerar_relatorio_pdf(dfs_por_periodo, distancias_por_periodo, tempos_por_periodo, selected_atletas, periodo_atual)
+                    pdf_buffer = gerar_relatorio_pdf(dfs_por_periodo, distancias_por_periodo, tempos_por_periodo, selected_atletas, periodo_atual, selected_atletas_nomes)
+                    atletas_str = "_".join(selected_atletas_nomes[:3])
                     st.download_button(
                         label="📥 BAIXAR RELATÓRIO PDF",
                         data=pdf_buffer,
-                        file_name=f"scoutlab_relatorio_{selected_atletas[0]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                        file_name=f"scoutlab_relatorio_{atletas_str}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                         mime="application/pdf",
                         use_container_width=True
                     )
@@ -1264,7 +1361,13 @@ if uploaded_files:
                         <div class="metric-label">FC Máx (bpm)</div>
                     </div>
                     """, unsafe_allow_html=True)
-                st.markdown(f"**{periodo_nome}** | Tempo: {tempo_min:.1f} min | {len(df_periodo):,} registros")
+                
+                # Exibir quais atletas estão no período
+                atletas_no_periodo = df_periodo['Atleta'].unique()
+                atletas_str = ", ".join(atletas_no_periodo[:3])
+                if len(atletas_no_periodo) > 3:
+                    atletas_str += f" +{len(atletas_no_periodo)-3}"
+                st.markdown(f"**{periodo_nome}** | Tempo: {tempo_min:.1f} min | {len(df_periodo):,} registros | 👥 {atletas_str}")
                 st.markdown("---")
             
             # ==================== ABAS ====================
@@ -1280,8 +1383,16 @@ if uploaded_files:
             with tab1:
                 st.subheader("🗺️ Mapa Tático de Posicionamento")
                 
-                periodo_mapa = st.selectbox("Selecionar período", options=list(dfs_por_periodo.keys()), key="periodo_mapa_select")
+                col_map1, col_map2 = st.columns([2, 1])
+                with col_map1:
+                    periodo_mapa = st.selectbox("Selecionar período", options=list(dfs_por_periodo.keys()), key="periodo_mapa_select")
+                with col_map2:
+                    atleta_mapa = st.selectbox("Selecionar atleta", options=["Todos"] + list(dfs_por_periodo[periodo_mapa]['Atleta'].unique()), key="atleta_mapa_select")
+                
                 df_mapa = dfs_por_periodo[periodo_mapa]
+                
+                if atleta_mapa != "Todos":
+                    df_mapa = df_mapa[df_mapa['Atleta'] == atleta_mapa]
                 
                 bounds = st.session_state.get('bounds_estadio', None)
                 centro = st.session_state.get('centro_estadio', None)
@@ -1291,46 +1402,99 @@ if uploaded_files:
                 else:
                     center_lat, center_lon = df_mapa['Latitude'].mean(), df_mapa['Longitude'].mean()
                 
-                fig_map = go.Figure()
-                if show_field and bounds:
-                    lat_min, lat_max, lon_min, lon_max = bounds
-                    fig_map.add_shape(type="rect", x0=lon_min, x1=lon_max, y0=lat_min, y1=lat_max,
-                                      line=dict(color="white", width=2), fillcolor="rgba(34,139,34,0.2)")
-                    fig_map.add_shape(type="line", x0=(lon_min+lon_max)/2, x1=(lon_min+lon_max)/2, y0=lat_min, y1=lat_max,
-                                      line=dict(color="white", width=1, dash="dash"))
-                
-                if len(df_mapa) > 5000:
-                    df_mapa_plot = df_mapa.sample(5000, random_state=42)
+                if animacao_3d:
+                    # Visualização 3D
+                    fig_map_3d = go.Figure()
+                    
+                    # Adicionar trajetória 3D
+                    fig_map_3d.add_trace(go.Scatter3d(
+                        x=df_mapa['Longitude'], 
+                        y=df_mapa['Latitude'], 
+                        z=df_mapa['Seconds'] / 60,
+                        mode='lines+markers',
+                        marker=dict(size=3, color=df_mapa['Velocity'] * 3.6, colorscale='Viridis', showscale=True,
+                                   colorbar=dict(title="Velocidade (km/h)")),
+                        line=dict(width=2, color='cyan'),
+                        name='Trajetória 3D',
+                        text=[f"Tempo: {seconds_to_time_str(row['Seconds'], row['start_datetime'])}<br>Vel: {row['Velocity'] * 3.6:.1f} km/h" for _, row in df_mapa.iterrows()],
+                        hoverinfo='text'
+                    ))
+                    
+                    fig_map_3d.update_layout(
+                        title=f"Trajetória 3D - {atleta_mapa if atleta_mapa != 'Todos' else 'Múltiplos atletas'} - {periodo_mapa}",
+                        scene=dict(
+                            xaxis_title="Longitude",
+                            yaxis_title="Latitude", 
+                            zaxis_title="Tempo (minutos)",
+                            camera=dict(eye=dict(x=1.5, y=1.5, z=1.5))
+                        ),
+                        height=700
+                    )
+                    st.plotly_chart(fig_map_3d, use_container_width=True)
                 else:
-                    df_mapa_plot = df_mapa
-                
-                hover_texts = [f"<b>{seconds_to_time_str(row['Seconds'], row['start_datetime'])}</b><br>Vel: {row['Velocity'] * 3.6:.1f} km/h<br>FC: {row['HeartRate']:.0f} bpm" for _, row in df_mapa_plot.iterrows()]
-                fig_map.add_trace(go.Scattermapbox(lat=df_mapa_plot['Latitude'], lon=df_mapa_plot['Longitude'], mode='markers',
-                                                   marker=dict(size=4, color=df_mapa_plot['Velocity'] * 3.6, colorscale='Viridis', showscale=True,
-                                                              colorbar=dict(title="Velocidade (km/h)")), text=hover_texts, hoverinfo='text', name='Percurso'))
-                
-                if len(df_mapa_plot) > 0:
-                    fig_map.add_trace(go.Scattermapbox(lat=[df_mapa_plot['Latitude'].iloc[0]], lon=[df_mapa_plot['Longitude'].iloc[0]],
-                                                       mode='markers', marker=dict(size=16, color='green'), name='Início'))
-                    fig_map.add_trace(go.Scattermapbox(lat=[df_mapa_plot['Latitude'].iloc[-1]], lon=[df_mapa_plot['Longitude'].iloc[-1]],
-                                                       mode='markers', marker=dict(size=16, color='red'), name='Fim'))
-                
-                zoom = 18 if bounds else 15
-                fig_map.update_layout(mapbox=dict(style="open-street-map", center=dict(lat=center_lat, lon=center_lon), zoom=zoom),
-                                      height=600, margin=dict(l=0, r=0, t=30, b=0),
-                                      title=f"Trajetória de {selected_atletas[0]} - {periodo_mapa} - {st.session_state.get('nome_estadio', 'Campo')}")
-                st.plotly_chart(fig_map, use_container_width=True)
+                    fig_map = go.Figure()
+                    if show_field and bounds:
+                        lat_min, lat_max, lon_min, lon_max = bounds
+                        fig_map.add_shape(type="rect", x0=lon_min, x1=lon_max, y0=lat_min, y1=lat_max,
+                                          line=dict(color="white", width=2), fillcolor="rgba(34,139,34,0.2)")
+                        fig_map.add_shape(type="line", x0=(lon_min+lon_max)/2, x1=(lon_min+lon_max)/2, y0=lat_min, y1=lat_max,
+                                          line=dict(color="white", width=1, dash="dash"))
+                    
+                    # Plotar trajetórias por atleta com cores diferentes
+                    if atleta_mapa == "Todos":
+                        atletas_unicos = df_mapa['Atleta'].unique()
+                        cores = px.colors.qualitative.Plotly
+                        for idx, atleta in enumerate(atletas_unicos):
+                            df_atleta = df_mapa[df_mapa['Atleta'] == atleta]
+                            if len(df_atleta) > 5000:
+                                df_atleta = df_atleta.sample(5000, random_state=42)
+                            
+                            hover_texts = [f"<b>{atleta}</b><br>{seconds_to_time_str(row['Seconds'], row['start_datetime'])}<br>Vel: {row['Velocity'] * 3.6:.1f} km/h<br>FC: {row['HeartRate']:.0f} bpm" for _, row in df_atleta.iterrows()]
+                            fig_map.add_trace(go.Scattermapbox(lat=df_atleta['Latitude'], lon=df_atleta['Longitude'], mode='markers',
+                                                               marker=dict(size=4, color=cores[idx % len(cores)], symbol='circle'),
+                                                               text=hover_texts, hoverinfo='text', name=atleta))
+                    else:
+                        if len(df_mapa) > 5000:
+                            df_mapa_plot = df_mapa.sample(5000, random_state=42)
+                        else:
+                            df_mapa_plot = df_mapa
+                        
+                        hover_texts = [f"<b>{seconds_to_time_str(row['Seconds'], row['start_datetime'])}</b><br>Vel: {row['Velocity'] * 3.6:.1f} km/h<br>FC: {row['HeartRate']:.0f} bpm" for _, row in df_mapa_plot.iterrows()]
+                        fig_map.add_trace(go.Scattermapbox(lat=df_mapa_plot['Latitude'], lon=df_mapa_plot['Longitude'], mode='markers',
+                                                           marker=dict(size=4, color=df_mapa_plot['Velocity'] * 3.6, colorscale='Viridis', showscale=True,
+                                                                      colorbar=dict(title="Velocidade (km/h)")), text=hover_texts, hoverinfo='text', name='Percurso'))
+                        
+                        if len(df_mapa_plot) > 0:
+                            fig_map.add_trace(go.Scattermapbox(lat=[df_mapa_plot['Latitude'].iloc[0]], lon=[df_mapa_plot['Longitude'].iloc[0]],
+                                                               mode='markers', marker=dict(size=16, color='green'), name='Início'))
+                            fig_map.add_trace(go.Scattermapbox(lat=[df_mapa_plot['Latitude'].iloc[-1]], lon=[df_mapa_plot['Longitude'].iloc[-1]],
+                                                               mode='markers', marker=dict(size=16, color='red'), name='Fim'))
+                    
+                    zoom = 18 if bounds else 15
+                    fig_map.update_layout(mapbox=dict(style="open-street-map", center=dict(lat=center_lat, lon=center_lon), zoom=zoom),
+                                          height=600, margin=dict(l=0, r=0, t=30, b=0),
+                                          title=f"Trajetória - {atleta_mapa if atleta_mapa != 'Todos' else 'Múltiplos atletas'} - {periodo_mapa} - {st.session_state.get('nome_estadio', 'Campo')}")
+                    st.plotly_chart(fig_map, use_container_width=True)
             
             # TAB 2: ANÁLISE POR ZONAS
             with tab2:
                 st.subheader("📐 Análise Tática por Zonas do Campo")
                 st.markdown(f"Campo com dimensões oficiais: **{CAMPO_COMPRIMENTO}m x {CAMPO_LARGURA}m**")
                 
-                periodo_tatica = st.selectbox("Selecionar período", options=list(dfs_por_periodo.keys()), key="periodo_tatica_select")
+                col_zone1, col_zone2 = st.columns(2)
+                with col_zone1:
+                    periodo_tatica = st.selectbox("Selecionar período", options=list(dfs_por_periodo.keys()), key="periodo_tatica_select")
+                with col_zone2:
+                    atleta_tatica = st.selectbox("Selecionar atleta", options=["Todos"] + list(dfs_por_periodo[periodo_tatica]['Atleta'].unique()), key="atleta_tatica_select")
+                
                 df_tat = dfs_por_periodo[periodo_tatica]
+                
+                if atleta_tatica != "Todos":
+                    df_tat = df_tat[df_tat['Atleta'] == atleta_tatica]
+                
                 start_dt_tat = df_tat['start_datetime'].iloc[0] if len(df_tat) > 0 else None
                 
-                st.markdown(f"### 📊 Métricas do Período: {periodo_tatica}")
+                st.markdown(f"### 📊 Métricas do Período: {periodo_tatica} - Atleta: {atleta_tatica if atleta_tatica != 'Todos' else 'Todos combinados'}")
                 col_metric1, col_metric2, col_metric3, col_metric4, col_metric5 = st.columns(5)
                 with col_metric1:
                     dist = distancias_por_periodo.get(periodo_tatica, 0)
@@ -1477,7 +1641,7 @@ if uploaded_files:
                     fig_tat.add_trace(go.Scatter(x=df_tat_sample['campo_x'], y=df_tat_sample['campo_y'], mode='markers',
                                                  marker=dict(size=1, color='white', opacity=0.3), name='Trajetória', hoverinfo='skip'))
                 
-                fig_tat.update_layout(title=f"Análise Tática - {selected_atletas[0]} - {periodo_tatica}",
+                fig_tat.update_layout(title=f"Análise Tática - {atleta_tatica if atleta_tatica != 'Todos' else 'Múltiplos atletas'} - {periodo_tatica}",
                                       xaxis_title="Posição (m) - Comprimento", yaxis_title="Posição (m) - Largura",
                                       height=600, xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2]),
                                       yaxis=dict(range=[Y_MIN-2, Y_MAX+2]), plot_bgcolor='rgba(34,139,34,0.2)')
@@ -1497,7 +1661,7 @@ if uploaded_files:
                 }), use_container_width=True)
                 
                 csv_tatico = zona_metrics.reset_index().to_csv(index=False)
-                st.download_button("📥 Exportar análise tática", csv_tatico, f"analise_tatica_{selected_atletas[0]}_{periodo_tatica}.csv")
+                st.download_button("📥 Exportar análise tática", csv_tatico, f"analise_tatica_{atleta_tatica}_{periodo_tatica}.csv")
             
             # TAB 3: PERFIL ACELERAÇÃO-VELOCIDADE
             with tab3:
@@ -1519,15 +1683,30 @@ if uploaded_files:
                     - Pₘₐₓ: 5-12 W/kg
                     """)
                 
-                periodo_asp = st.selectbox("Selecionar período", options=list(dfs_por_periodo.keys()), key="asp_periodo_select")
+                col_asp1, col_asp2 = st.columns(2)
+                with col_asp1:
+                    periodo_asp = st.selectbox("Selecionar período", options=list(dfs_por_periodo.keys()), key="asp_periodo_select")
+                with col_asp2:
+                    atleta_asp = st.selectbox("Selecionar atleta", options=["Todos"] + list(dfs_por_periodo[periodo_asp]['Atleta'].unique()), key="atleta_asp_select")
+                
                 df_asp_atual = dfs_por_periodo[periodo_asp]
+                
+                if atleta_asp != "Todos":
+                    df_asp_atual = df_asp_atual[df_asp_atual['Atleta'] == atleta_asp]
                 
                 asp_results = {}
                 with st.spinner("Calculando perfil ASP com tratamento estatístico robusto..."):
-                    for nome, df_periodo in dfs_por_periodo.items():
-                        asp_metrics = calcular_asp_metrics(df_periodo)
+                    # Agrupar por atleta se necessário
+                    if atleta_asp == "Todos":
+                        for atleta in df_asp_atual['Atleta'].unique():
+                            df_atleta = df_asp_atual[df_asp_atual['Atleta'] == atleta]
+                            asp_metrics = calcular_asp_metrics(df_atleta)
+                            if asp_metrics:
+                                asp_results[atleta] = asp_metrics
+                    else:
+                        asp_metrics = calcular_asp_metrics(df_asp_atual)
                         if asp_metrics:
-                            asp_results[nome] = asp_metrics
+                            asp_results[atleta_asp] = asp_metrics
                 
                 if not asp_results:
                     st.warning("⚠️ Dados insuficientes para calcular o Perfil Aceleração-Velocidade. São necessários pelo menos 10 pontos com aceleração positiva e velocidade > 0.")
@@ -1535,138 +1714,120 @@ if uploaded_files:
                     st.markdown("### 📈 Curva Aceleração-Velocidade (ASP)")
                     st.markdown("**Relação entre Velocidade (m/s) e Aceleração (m/s²) - Modelo Físico**")
                     
-                    metrics = asp_results.get(periodo_asp)
-                    if metrics:
+                    fig_asp = go.Figure()
+                    
+                    cores_asp = px.colors.qualitative.Plotly
+                    for idx, (atleta, metrics) in enumerate(asp_results.items()):
                         df_sprints = dfs_por_periodo[periodo_asp]
+                        if atleta != "Todos":
+                            df_sprints = df_sprints[df_sprints['Atleta'] == atleta]
                         df_sprints = df_sprints[(df_sprints['Acceleration'] > 0) & (df_sprints['Velocity'] > 0)].copy()
-                        v_ms = df_sprints['Velocity'].values
-                        a_ms2 = df_sprints['Acceleration'].values
                         
-                        fig_asp = go.Figure()
-                        
-                        fig_asp.add_trace(go.Scatter(
-                            x=v_ms, y=a_ms2,
-                            mode='markers',
-                            name='Dados brutos',
-                            marker=dict(size=8, color='rgba(0, 210, 255, 0.7)', symbol='circle', line=dict(width=1, color='white')),
-                            hovertemplate='Vel: %{x:.2f} m/s (%{x*3.6:.1f} km/h)<br>Acel: %{y:.2f} m/s²<extra></extra>'
-                        ))
-                        
-                        v_fit = np.linspace(0, min(metrics['v0'], metrics['v_max'] * 1.05), 100)
-                        a_fit = metrics['a0'] * (1 - v_fit / metrics['v0'])
-                        
-                        fig_asp.add_trace(go.Scatter(
-                            x=v_fit, y=a_fit,
-                            mode='lines',
-                            name='Modelo ASP',
-                            line=dict(color='red', width=3),
-                            hovertemplate='Modelo: a = {a0:.2f} × (1 - v/{v0:.2f})<br>v: %{{x:.2f}} m/s<br>a: %{{y:.2f}} m/s²<extra></extra>'.format(
-                                a0=metrics['a0'], v0=metrics['v0']
-                            )
-                        ))
-                        
-                        fig_asp.add_trace(go.Scatter(
-                            x=[0], y=[metrics['a0']],
-                            mode='markers+text',
-                            marker=dict(size=16, color='green', symbol='circle', line=dict(width=2, color='white')),
-                            text=[f"a₀ = {metrics['a0']:.2f} m/s²"],
-                            textposition='top right',
-                            name='Aceleração Máxima'
-                        ))
-                        
-                        fig_asp.add_trace(go.Scatter(
-                            x=[metrics['v0']], y=[0],
-                            mode='markers+text',
-                            marker=dict(size=16, color='orange', symbol='circle', line=dict(width=2, color='white')),
-                            text=[f"v₀ = {metrics['v0']:.2f} m/s ({metrics['v0'] * 3.6:.1f} km/h)"],
-                            textposition='bottom right',
-                            name='Velocidade Máxima Teórica'
-                        ))
-                        
-                        equation_text = f"a(v) = {metrics['a0']:.2f} × (1 - v/{metrics['v0']:.2f})<br>R² = {metrics['r2']:.3f}<br>Pₘₐₓ = {metrics['p_max']:.2f} W/kg"
-                        
-                        fig_asp.add_annotation(
-                            x=0.95, y=0.95, xref="paper", yref="paper",
-                            text=equation_text, showarrow=False,
-                            font=dict(size=12, color='white', family='monospace'),
-                            bgcolor='rgba(0,0,0,0.6)', borderpad=10, bordercolor='white', borderwidth=1
-                        )
-                        
-                        fig_asp.update_layout(
-                            title=f"<b>Perfil Aceleração-Velocidade - {periodo_asp}</b>",
-                            xaxis=dict(title="<b>Velocidade (m/s)</b>", gridcolor='rgba(255,255,255,0.1)', 
-                                      range=[0, max(metrics['v0'], metrics['v_max']) * 1.1]),
-                            yaxis=dict(title="<b>Aceleração (m/s²)</b>", gridcolor='rgba(255,255,255,0.1)', 
-                                      range=[0, max(metrics['a0'], np.max(a_ms2)) * 1.1]),
-                            height=600, 
-                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
-                            plot_bgcolor='rgba(0,0,0,0.2)', 
-                            paper_bgcolor='rgba(0,0,0,0)'
-                        )
-                        
-                        st.plotly_chart(fig_asp, use_container_width=True)
-                        
-                        st.markdown("### 📊 Métricas do Perfil Aceleração-Velocidade")
-                        
-                        asp_df = pd.DataFrame(asp_results).T
-                        asp_df = asp_df[['a0', 'v0', 'v_max', 'p_max', 'r2']].round(3)
-                        asp_df.columns = ['a₀ (m/s²)', 'v₀ (m/s)', 'vₘₐₓ (m/s)', 'Pₘₐₓ (W/kg)', 'R²']
-                        asp_df['v₀ (km/h)'] = (asp_df['v₀ (m/s)'] * 3.6).round(1)
-                        asp_df['vₘₐₓ (km/h)'] = (asp_df['vₘₐₓ (m/s)'] * 3.6).round(1)
-                        
-                        def qualidade_r2(r2):
-                            if r2 >= 0.8: return '🟢 Excelente'
-                            elif r2 >= 0.6: return '🟡 Bom'
-                            elif r2 >= 0.4: return '🟠 Moderado'
-                            else: return '🔴 Baixo'
-                        
-                        asp_df['Qualidade'] = asp_df['R²'].apply(qualidade_r2)
-                        
-                        st.dataframe(asp_df[['a₀ (m/s²)', 'v₀ (m/s)', 'v₀ (km/h)', 'vₘₐₓ (km/h)', 'Pₘₐₓ (W/kg)', 'R²', 'Qualidade']], use_container_width=True)
-                        
-                        st.markdown("### 🎯 Interpretação dos Resultados")
-                        col_asp1, col_asp2, col_asp3 = st.columns(3)
-                        
-                        with col_asp1:
-                            a0_medio = asp_df['a₀ (m/s²)'].mean()
-                            st.markdown(f"""
-                            <div class="metric-card">
-                                <div class="metric-value">{a0_medio:.2f}</div>
-                                <div class="metric-label">Aceleração Média (m/s²)</div>
-                                <div style="font-size:0.7rem">⚡ Capacidade de aceleração inicial</div>
-                            </div>
-                            """, unsafe_allow_html=True)
-                        
-                        with col_asp2:
-                            v0_medio = asp_df['v₀ (km/h)'].mean()
-                            st.markdown(f"""
-                            <div class="metric-card">
-                                <div class="metric-value">{v0_medio:.1f}</div>
-                                <div class="metric-label">Velocidade Teórica (km/h)</div>
-                                <div style="font-size:0.7rem">🏃 Capacidade de alta velocidade</div>
-                            </div>
-                            """, unsafe_allow_html=True)
-                        
-                        with col_asp3:
-                            p_max_medio = asp_df['Pₘₐₓ (W/kg)'].mean()
-                            st.markdown(f"""
-                            <div class="metric-card">
-                                <div class="metric-value">{p_max_medio:.2f}</div>
-                                <div class="metric-label">Potência Máx (W/kg)</div>
-                                <div style="font-size:0.7rem">💪 Explosividade muscular</div>
-                            </div>
-                            """, unsafe_allow_html=True)
-                        
-                        st.markdown('<div class="info-card">', unsafe_allow_html=True)
-                        st.info("📊 **Tratamento Estatístico Aplicado:** Filtro IQR para remoção de outliers, regressão robusta RANSAC, limites fisiológicos (a₀: 1.5-6.0 m/s², v₀: 6.0-13.0 m/s, Pₘₐₓ: 4-20 W/kg)")
-                        st.markdown('</div>', unsafe_allow_html=True)
+                        if len(df_sprints) > 0:
+                            v_ms = df_sprints['Velocity'].values
+                            a_ms2 = df_sprints['Acceleration'].values
+                            
+                            fig_asp.add_trace(go.Scatter(
+                                x=v_ms, y=a_ms2,
+                                mode='markers',
+                                name=f'{atleta} - Dados',
+                                marker=dict(size=6, color=cores_asp[idx % len(cores_asp)], opacity=0.6),
+                                hovertemplate=f'{atleta}<br>Vel: %{{x:.2f}} m/s (%{{x*3.6:.1f}} km/h)<br>Acel: %{{y:.2f}} m/s²<extra></extra>'
+                            ))
+                            
+                            v_fit = np.linspace(0, min(metrics['v0'], metrics['v_max'] * 1.05), 100)
+                            a_fit = metrics['a0'] * (1 - v_fit / metrics['v0'])
+                            
+                            fig_asp.add_trace(go.Scatter(
+                                x=v_fit, y=a_fit,
+                                mode='lines',
+                                name=f'{atleta} - Modelo',
+                                line=dict(color=cores_asp[idx % len(cores_asp)], width=3, dash='dash'),
+                                hovertemplate=f'{atleta}<br>a = {metrics["a0"]:.2f} × (1 - v/{metrics["v0"]:.2f})<br>v: %{{x:.2f}} m/s<br>a: %{{y:.2f}} m/s²<extra></extra>'
+                            ))
+                    
+                    fig_asp.update_layout(
+                        title=f"<b>Perfil Aceleração-Velocidade - {periodo_asp}</b>",
+                        xaxis=dict(title="<b>Velocidade (m/s)</b>", gridcolor='rgba(255,255,255,0.1)'),
+                        yaxis=dict(title="<b>Aceleração (m/s²)</b>", gridcolor='rgba(255,255,255,0.1)'),
+                        height=600,
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+                        plot_bgcolor='rgba(0,0,0,0.2)',
+                        paper_bgcolor='rgba(0,0,0,0)'
+                    )
+                    
+                    st.plotly_chart(fig_asp, use_container_width=True)
+                    
+                    st.markdown("### 📊 Métricas do Perfil Aceleração-Velocidade")
+                    
+                    asp_df = pd.DataFrame(asp_results).T
+                    asp_df = asp_df[['a0', 'v0', 'v_max', 'p_max', 'r2']].round(3)
+                    asp_df.columns = ['a₀ (m/s²)', 'v₀ (m/s)', 'vₘₐₓ (m/s)', 'Pₘₐₓ (W/kg)', 'R²']
+                    asp_df['v₀ (km/h)'] = (asp_df['v₀ (m/s)'] * 3.6).round(1)
+                    asp_df['vₘₐₓ (km/h)'] = (asp_df['vₘₐₓ (m/s)'] * 3.6).round(1)
+                    
+                    def qualidade_r2(r2):
+                        if r2 >= 0.8: return '🟢 Excelente'
+                        elif r2 >= 0.6: return '🟡 Bom'
+                        elif r2 >= 0.4: return '🟠 Moderado'
+                        else: return '🔴 Baixo'
+                    
+                    asp_df['Qualidade'] = asp_df['R²'].apply(qualidade_r2)
+                    
+                    st.dataframe(asp_df[['a₀ (m/s²)', 'v₀ (m/s)', 'v₀ (km/h)', 'vₘₐₓ (km/h)', 'Pₘₐₓ (W/kg)', 'R²', 'Qualidade']], use_container_width=True)
+                    
+                    st.markdown("### 🎯 Interpretação dos Resultados")
+                    col_asp_metrics1, col_asp_metrics2, col_asp_metrics3 = st.columns(3)
+                    
+                    with col_asp_metrics1:
+                        a0_medio = asp_df['a₀ (m/s²)'].mean()
+                        st.markdown(f"""
+                        <div class="metric-card">
+                            <div class="metric-value">{a0_medio:.2f}</div>
+                            <div class="metric-label">Aceleração Média (m/s²)</div>
+                            <div style="font-size:0.7rem">⚡ Capacidade de aceleração inicial</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with col_asp_metrics2:
+                        v0_medio = asp_df['v₀ (km/h)'].mean()
+                        st.markdown(f"""
+                        <div class="metric-card">
+                            <div class="metric-value">{v0_medio:.1f}</div>
+                            <div class="metric-label">Velocidade Teórica (km/h)</div>
+                            <div style="font-size:0.7rem">🏃 Capacidade de alta velocidade</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with col_asp_metrics3:
+                        p_max_medio = asp_df['Pₘₐₓ (W/kg)'].mean()
+                        st.markdown(f"""
+                        <div class="metric-card">
+                            <div class="metric-value">{p_max_medio:.2f}</div>
+                            <div class="metric-label">Potência Máx (W/kg)</div>
+                            <div style="font-size:0.7rem">💪 Explosividade muscular</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    st.markdown('<div class="info-card">', unsafe_allow_html=True)
+                    st.info("📊 **Tratamento Estatístico Aplicado:** Filtro IQR para remoção de outliers, regressão robusta RANSAC, limites fisiológicos (a₀: 1.5-6.0 m/s², v₀: 6.0-13.0 m/s, Pₘₐₓ: 4-20 W/kg)")
+                    st.markdown('</div>', unsafe_allow_html=True)
             
-            # TAB 4: PERFORMANCE CARDÍACA (COMPLETA)
+            # TAB 4: PERFORMANCE CARDÍACA
             with tab4:
                 st.subheader("❤️ Análise de Performance Cardíaca")
                 
-                periodo_fc = st.selectbox("Selecionar período", options=list(dfs_por_periodo.keys()), key="fc_periodo_select")
+                col_fc1, col_fc2 = st.columns(2)
+                with col_fc1:
+                    periodo_fc = st.selectbox("Selecionar período", options=list(dfs_por_periodo.keys()), key="fc_periodo_select")
+                with col_fc2:
+                    atleta_fc = st.selectbox("Selecionar atleta", options=["Todos"] + list(dfs_por_periodo[periodo_fc]['Atleta'].unique()), key="atleta_fc_select")
+                
                 df_fc = dfs_por_periodo[periodo_fc]
+                
+                if atleta_fc != "Todos":
+                    df_fc = df_fc[df_fc['Atleta'] == atleta_fc]
+                
                 start_dt_fc = df_fc['start_datetime'].iloc[0] if len(df_fc) > 0 else None
                 
                 fc_max = df_fc['HeartRate'].max()
@@ -1743,7 +1904,7 @@ if uploaded_files:
                                      annotation_text="Zona Máxima", annotation_position="top right")
                 
                 fig_fc_acc.update_layout(
-                    title=f"FC vs Aceleração - {periodo_fc}",
+                    title=f"FC vs Aceleração - {atleta_fc if atleta_fc != 'Todos' else 'Múltiplos atletas'} - {periodo_fc}",
                     height=450,
                     hovermode='x unified',
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
@@ -1771,7 +1932,7 @@ if uploaded_files:
                         secondary_y=True
                     )
                     
-                    fig_dist_fc.update_layout(title=f"Distância vs FC - {periodo_fc}", height=400)
+                    fig_dist_fc.update_layout(title=f"Distância vs FC - {atleta_fc if atleta_fc != 'Todos' else 'Múltiplos atletas'} - {periodo_fc}", height=400)
                     fig_dist_fc.update_yaxes(title_text="Distância (m)", secondary_y=False, color="#2ecc71")
                     fig_dist_fc.update_yaxes(title_text="FC (bpm)", secondary_y=True, color="#ff6b6b")
                     st.plotly_chart(fig_dist_fc, use_container_width=True)
@@ -1808,7 +1969,7 @@ if uploaded_files:
                     st.markdown("### 📈 Resumo Cardíaco")
                     tempo_maximo = zona_stats[zona_stats['Zona_FC'] == 'Máximo (>90%)']['% do Tempo'].values[0] if 'Máximo (>90%)' in zona_stats['Zona_FC'].values else 0
                     st.markdown(f"""
-                    <div style="background: rgba(0,0,0,0.3); border-radius: 15px; padding: 20px;">
+                    <div class="glass-card">
                         <p><b>❤️ FC Máxima:</b> {fc_max:.0f} bpm</p>
                         <p><b>📊 FC Média:</b> {df_fc_plot['HeartRate'].mean():.0f} bpm</p>
                         <p><b>⚡ Limiar Anaeróbico:</b> {limiar_anaerobico:.0f} bpm</p>
@@ -1818,11 +1979,17 @@ if uploaded_files:
                     """, unsafe_allow_html=True)
                 
                 csv_trimp = zonas_trimp.to_csv(index=False)
-                st.download_button("📥 Exportar dados de TRIMP", csv_trimp, f"trimp_{selected_atletas[0]}_{periodo_fc}.csv")
+                st.download_button("📥 Exportar dados de TRIMP", csv_trimp, f"trimp_{atleta_fc}_{periodo_fc}.csv")
             
             # TAB 5: COMPARAÇÃO ESPORTIVA
             with tab5:
                 st.subheader("📊 Comparação Esportiva entre Períodos")
+                
+                col_comp1, col_comp2 = st.columns(2)
+                with col_comp1:
+                    atleta_comparacao = st.selectbox("Selecionar atleta para comparação", 
+                                                     options=["Todos"] + list(dfs_por_periodo[list(dfs_por_periodo.keys())[0]]['Atleta'].unique()), 
+                                                     key="atleta_comparacao_select")
                 
                 var_selecionadas = st.multiselect(
                     "Selecione as variáveis para comparação",
@@ -1836,30 +2003,35 @@ if uploaded_files:
                 if var_selecionadas:
                     comparacao_data = []
                     for periodo_nome, df_periodo in dfs_por_periodo.items():
-                        row = {"Período": periodo_nome}
-                        for var in var_selecionadas:
-                            if var == "Velocidade Média (km/h)":
-                                row[var] = df_periodo['Velocity'].mean() * 3.6
-                            elif var == "Velocidade Máxima (km/h)":
-                                row[var] = df_periodo['Velocity'].max() * 3.6
-                            elif var == "Frequência Cardíaca Média (bpm)":
-                                row[var] = df_periodo['HeartRate'].mean()
-                            elif var == "Frequência Cardíaca Máxima (bpm)":
-                                row[var] = df_periodo['HeartRate'].max()
-                            elif var == "Distância Total (m)":
-                                row[var] = distancias_por_periodo.get(periodo_nome, 0)
-                            elif var == "Tempo Total (min)":
-                                row[var] = tempos_por_periodo.get(periodo_nome, 0) / 60
-                            elif var == "TRIMP Total":
-                                fc_max = df_periodo['HeartRate'].max()
-                                trimp_total, _ = calcular_trimp_edwards(df_periodo, fc_max)
-                                row[var] = trimp_total
-                        comparacao_data.append(row)
+                        df_temp = df_periodo
+                        if atleta_comparacao != "Todos":
+                            df_temp = df_temp[df_temp['Atleta'] == atleta_comparacao]
+                        
+                        if len(df_temp) > 0:
+                            row = {"Período": periodo_nome, "Atleta": atleta_comparacao if atleta_comparacao != "Todos" else "Todos"}
+                            for var in var_selecionadas:
+                                if var == "Velocidade Média (km/h)":
+                                    row[var] = df_temp['Velocity'].mean() * 3.6
+                                elif var == "Velocidade Máxima (km/h)":
+                                    row[var] = df_temp['Velocity'].max() * 3.6
+                                elif var == "Frequência Cardíaca Média (bpm)":
+                                    row[var] = df_temp['HeartRate'].mean()
+                                elif var == "Frequência Cardíaca Máxima (bpm)":
+                                    row[var] = df_temp['HeartRate'].max()
+                                elif var == "Distância Total (m)":
+                                    row[var] = distancias_por_periodo.get(periodo_nome, 0)
+                                elif var == "Tempo Total (min)":
+                                    row[var] = tempos_por_periodo.get(periodo_nome, 0) / 60
+                                elif var == "TRIMP Total":
+                                    fc_max = df_temp['HeartRate'].max()
+                                    trimp_total, _ = calcular_trimp_edwards(df_temp, fc_max)
+                                    row[var] = trimp_total
+                            comparacao_data.append(row)
                     
                     df_comp = pd.DataFrame(comparacao_data)
                     
                     for var in var_selecionadas:
-                        fig_bar = px.bar(df_comp, x='Período', y=var, title=f"<b>{var}</b>", 
+                        fig_bar = px.bar(df_comp, x='Período', y=var, title=f"<b>{var} - {atleta_comparacao if atleta_comparacao != 'Todos' else 'Todos os atletas'}</b>", 
                                          text_auto='.1f', color='Período',
                                          color_discrete_sequence=px.colors.qualitative.Set2)
                         fig_bar.update_layout(height=400, showlegend=False)
@@ -1905,7 +2077,7 @@ if uploaded_files:
                                 bgcolor='rgba(0,0,0,0.2)'
                             ),
                             title=dict(
-                                text="<b>Perfil de Desempenho Normalizado</b><br><sup>Comparação entre períodos (quanto maior a área, melhor o desempenho)</sup>",
+                                text=f"<b>Perfil de Desempenho Normalizado - {atleta_comparacao if atleta_comparacao != 'Todos' else 'Todos os atletas'}</b><br><sup>Comparação entre períodos (quanto maior a área, melhor o desempenho)</sup>",
                                 x=0.5,
                                 font=dict(size=16)
                             ),
@@ -1945,7 +2117,7 @@ if uploaded_files:
                         st.download_button(
                             "📥 Exportar comparação (CSV)",
                             csv_comp,
-                            "comparacao_periodos.csv",
+                            f"comparacao_periodos_{atleta_comparacao}.csv",
                             use_container_width=True
                         )
         
@@ -1955,9 +2127,16 @@ if uploaded_files:
 else:
     st.markdown("""
     <div style="text-align: center; padding: 50px;">
-        <h2>⚽ ScoutLab - Plataforma de Análise de Performance</h2>
-        <p style="font-size: 1.2rem; color: #aaa;">Carregue os arquivos CSV na barra lateral para iniciar a análise</p>
-        <p style="margin-top: 30px;">📊 Análise de posicionamento | ⚡ Perfil de aceleração (ASP corrigido) | ❤️ Monitoramento cardíaco | 🎯 Zonas de intensidade</p>
-        <p style="margin-top: 15px; font-size: 0.9rem; color: #00d2ff;">✅ Dados validados com limites fisiológicos: velocidade máxima 43.2 km/h, aceleração máxima 7.0 m/s²</p>
+        <div class="glass-card" style="max-width: 800px; margin: 0 auto;">
+            <h2>⚽ ScoutLab - Plataforma de Análise de Performance</h2>
+            <p style="font-size: 1.2rem; color: #aaa; margin-top: 20px;">Carregue os arquivos CSV na barra lateral para iniciar a análise</p>
+            <div style="display: flex; justify-content: center; gap: 20px; margin-top: 40px;">
+                <div class="stat-badge">📊 Análise de posicionamento</div>
+                <div class="stat-badge">⚡ Perfil de aceleração (ASP)</div>
+                <div class="stat-badge">❤️ Monitoramento cardíaco</div>
+                <div class="stat-badge">🎯 Zonas de intensidade</div>
+            </div>
+            <p style="margin-top: 30px; font-size: 0.9rem; color: #00d2ff;">✅ Dados validados com limites fisiológicos: velocidade máxima 43.2 km/h, aceleração máxima 7.0 m/s²</p>
+        </div>
     </div>
     """, unsafe_allow_html=True)
