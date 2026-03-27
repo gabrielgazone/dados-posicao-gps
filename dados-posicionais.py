@@ -36,7 +36,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS personalizado - VISUAL INOVADOR
+# CSS personalizado - VISUAL INOVADOR E IMPACTANTE
 st.markdown("""
 <style>
     @keyframes fadeIn {
@@ -45,15 +45,29 @@ st.markdown("""
     }
     @keyframes glow {
         0% { box-shadow: 0 0 5px rgba(0, 210, 255, 0.3); }
-        50% { box-shadow: 0 0 20px rgba(0, 210, 255, 0.6); }
+        50% { box-shadow: 0 0 25px rgba(0, 210, 255, 0.8); }
         100% { box-shadow: 0 0 5px rgba(0, 210, 255, 0.3); }
     }
+    @keyframes pulse {
+        0% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.05); opacity: 0.9; }
+        100% { transform: scale(1); opacity: 1; }
+    }
     @keyframes slideIn {
-        from { opacity: 0; transform: translateX(-20px); }
+        from { opacity: 0; transform: translateX(-30px); }
         to { opacity: 1; transform: translateX(0); }
     }
+    @keyframes slideInUp {
+        from { opacity: 0; transform: translateY(30px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes shimmer {
+        0% { background-position: -1000px 0; }
+        100% { background-position: 1000px 0; }
+    }
     .stApp {
-        background: linear-gradient(135deg, #0a0a1a 0%, #0f0f2a 50%, #1a1a3a 100%);
+        background: linear-gradient(135deg, #0a0a1a 0%, #0f0f2a 25%, #1a1a3a 50%, #0f0f2a 75%, #0a0a1a 100%);
+        background-attachment: fixed;
     }
     .metric-card {
         background: linear-gradient(135deg, rgba(26, 26, 46, 0.95) 0%, rgba(22, 33, 62, 0.95) 100%);
@@ -65,54 +79,75 @@ st.markdown("""
         backdrop-filter: blur(10px);
         transition: all 0.3s ease;
         animation: fadeIn 0.5s ease-out;
+        position: relative;
+        overflow: hidden;
+    }
+    .metric-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(0, 210, 255, 0.1), transparent);
+        transition: left 0.5s ease;
+    }
+    .metric-card:hover::before {
+        left: 100%;
     }
     .metric-card:hover {
-        transform: translateY(-5px) scale(1.02);
-        box-shadow: 0 12px 40px rgba(0, 210, 255, 0.3);
+        transform: translateY(-8px) scale(1.02);
+        box-shadow: 0 15px 45px rgba(0, 210, 255, 0.4);
         border-color: rgba(0, 210, 255, 0.8);
-        animation: glow 1.5s infinite;
+        animation: glow 2s infinite;
     }
     .metric-value {
-        font-size: 2.5rem;
+        font-size: 2.8rem;
         font-weight: bold;
         background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 50%, #00ff88 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
-        text-shadow: 0 0 20px rgba(0, 210, 255, 0.3);
+        text-shadow: 0 0 30px rgba(0, 210, 255, 0.5);
+        animation: pulse 2s ease-in-out infinite;
     }
     .metric-label {
-        font-size: 0.85rem;
-        color: #aaa;
+        font-size: 0.9rem;
+        color: #ccc;
         text-transform: uppercase;
         letter-spacing: 2px;
         margin-top: 8px;
+        font-weight: 500;
     }
     .stTabs [data-baseweb="tab-list"] {
-        gap: 12px;
-        background: rgba(0, 0, 0, 0.5);
-        padding: 10px;
-        border-radius: 50px;
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(0, 210, 255, 0.2);
+        gap: 15px;
+        background: rgba(0, 0, 0, 0.6);
+        padding: 12px;
+        border-radius: 60px;
+        backdrop-filter: blur(15px);
+        border: 1px solid rgba(0, 210, 255, 0.3);
+        margin-bottom: 20px;
     }
     .stTabs [data-baseweb="tab"] {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 40px;
-        padding: 10px 24px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 50px;
+        padding: 12px 28px;
         font-weight: 600;
+        font-size: 1rem;
         transition: all 0.3s ease;
         border: none;
-        color: #ccc;
+        color: #ddd;
+        letter-spacing: 0.5px;
     }
     .stTabs [data-baseweb="tab"]:hover {
-        background: rgba(0, 210, 255, 0.2);
-        transform: translateY(-2px);
+        background: rgba(0, 210, 255, 0.25);
+        transform: translateY(-3px);
+        color: white;
     }
     .stTabs [aria-selected="true"] {
         background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
         color: white;
-        box-shadow: 0 0 20px rgba(0, 210, 255, 0.5);
+        box-shadow: 0 0 25px rgba(0, 210, 255, 0.6);
         animation: glow 2s infinite;
     }
     .main-header {
@@ -120,12 +155,13 @@ st.markdown("""
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
-        font-size: 3rem;
+        font-size: 3.5rem;
         font-weight: bold;
         text-align: center;
         margin-bottom: 20px;
         animation: fadeIn 0.8s ease-out;
-        text-shadow: 0 0 30px rgba(0, 210, 255, 0.5);
+        text-shadow: 0 0 40px rgba(0, 210, 255, 0.6);
+        letter-spacing: 2px;
     }
     .sub-header {
         text-align: center;
@@ -133,8 +169,8 @@ st.markdown("""
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
-        font-size: 1.2rem;
-        margin-bottom: 30px;
+        font-size: 1.3rem;
+        margin-bottom: 35px;
         letter-spacing: 2px;
         animation: slideIn 0.6s ease-out;
     }
@@ -142,91 +178,105 @@ st.markdown("""
         background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
         border: none;
         border-radius: 50px;
-        padding: 12px 28px;
+        padding: 14px 32px;
         font-weight: bold;
         font-size: 1rem;
         transition: all 0.3s ease;
-        box-shadow: 0 4px 15px rgba(0, 210, 255, 0.3);
+        box-shadow: 0 5px 20px rgba(0, 210, 255, 0.4);
         animation: fadeIn 0.5s ease-out;
+        color: white;
     }
     .stButton > button:hover {
-        transform: scale(1.05) translateY(-2px);
-        box-shadow: 0 8px 30px rgba(0, 210, 255, 0.6);
+        transform: scale(1.05) translateY(-3px);
+        box-shadow: 0 10px 35px rgba(0, 210, 255, 0.7);
+        animation: pulse 0.5s ease;
     }
     .zone-selector {
-        background: linear-gradient(135deg, rgba(0, 0, 0, 0.5) 0%, rgba(26, 26, 46, 0.5) 100%);
-        border-radius: 15px;
-        padding: 15px;
+        background: linear-gradient(135deg, rgba(0, 0, 0, 0.6) 0%, rgba(26, 26, 46, 0.6) 100%);
+        border-radius: 20px;
+        padding: 20px;
         margin-bottom: 20px;
         border: 1px solid rgba(0, 210, 255, 0.3);
-        backdrop-filter: blur(10px);
-    }
-    .warning-card {
-        background: rgba(255, 100, 100, 0.2);
-        border-left: 4px solid #ff6b6b;
-        padding: 10px;
-        border-radius: 8px;
-        margin: 10px 0;
-        animation: slideIn 0.3s ease-out;
+        backdrop-filter: blur(12px);
+        animation: slideInUp 0.5s ease-out;
     }
     .info-card {
-        background: rgba(0, 210, 255, 0.1);
-        border-left: 4px solid #00d2ff;
-        padding: 10px;
-        border-radius: 8px;
-        margin: 10px 0;
+        background: linear-gradient(135deg, rgba(0, 210, 255, 0.15) 0%, rgba(58, 123, 213, 0.15) 100%);
+        border-left: 5px solid #00d2ff;
+        padding: 15px;
+        border-radius: 12px;
+        margin: 15px 0;
         animation: slideIn 0.3s ease-out;
+        backdrop-filter: blur(5px);
     }
     .success-card {
-        background: linear-gradient(135deg, rgba(0, 255, 136, 0.1) 0%, rgba(0, 210, 255, 0.1) 100%);
-        border-left: 4px solid #00ff88;
-        padding: 10px;
-        border-radius: 8px;
-        margin: 10px 0;
+        background: linear-gradient(135deg, rgba(0, 255, 136, 0.15) 0%, rgba(0, 210, 255, 0.15) 100%);
+        border-left: 5px solid #00ff88;
+        padding: 15px;
+        border-radius: 12px;
+        margin: 15px 0;
         animation: slideIn 0.3s ease-out;
     }
     .stat-badge {
-        background: linear-gradient(135deg, #00d2ff20 0%, #3a7bd520 100%);
-        border-radius: 10px;
-        padding: 8px 15px;
+        background: linear-gradient(135deg, rgba(0, 210, 255, 0.2) 0%, rgba(58, 123, 213, 0.2) 100%);
+        border-radius: 12px;
+        padding: 10px 18px;
         text-align: center;
-        border: 1px solid rgba(0, 210, 255, 0.3);
+        border: 1px solid rgba(0, 210, 255, 0.4);
         transition: all 0.3s ease;
+        font-weight: 500;
     }
     .stat-badge:hover {
         transform: scale(1.05);
-        border-color: rgba(0, 210, 255, 0.8);
+        border-color: rgba(0, 210, 255, 0.9);
+        background: rgba(0, 210, 255, 0.3);
     }
     .glass-card {
-        background: rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(10px);
-        border-radius: 20px;
-        padding: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(12px);
+        border-radius: 24px;
+        padding: 25px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
         transition: all 0.3s ease;
+        animation: slideInUp 0.5s ease-out;
     }
     .glass-card:hover {
-        border-color: rgba(0, 210, 255, 0.5);
-        box-shadow: 0 8px 32px rgba(0, 210, 255, 0.1);
+        border-color: rgba(0, 210, 255, 0.6);
+        box-shadow: 0 10px 40px rgba(0, 210, 255, 0.2);
+        transform: translateY(-3px);
     }
     div[data-testid="stSelectbox"] > div {
-        background: rgba(0, 0, 0, 0.3);
-        border-radius: 10px;
-        border: 1px solid rgba(0, 210, 255, 0.3);
+        background: rgba(0, 0, 0, 0.4);
+        border-radius: 12px;
+        border: 1px solid rgba(0, 210, 255, 0.4);
     }
     div[data-testid="stMultiSelect"] > div {
-        background: rgba(0, 0, 0, 0.3);
-        border-radius: 10px;
-        border: 1px solid rgba(0, 210, 255, 0.3);
+        background: rgba(0, 0, 0, 0.4);
+        border-radius: 12px;
+        border: 1px solid rgba(0, 210, 255, 0.4);
     }
     .stSlider > div > div {
         background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
     }
     hr {
-        background: linear-gradient(90deg, transparent, #00d2ff, transparent);
+        background: linear-gradient(90deg, transparent, #00d2ff, #00ff88, #00d2ff, transparent);
         height: 2px;
         border: none;
-        margin: 20px 0;
+        margin: 25px 0;
+    }
+    .plot-container {
+        border-radius: 20px;
+        overflow: hidden;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(0, 210, 255, 0.2);
+    }
+    .custom-title {
+        font-size: 1.8rem;
+        font-weight: bold;
+        background: linear-gradient(135deg, #00d2ff, #00ff88);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 20px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -249,11 +299,6 @@ VEL_MAX_HUMANA_MS = 12.0  # 43.2 km/h
 VEL_MIN_HUMANA_MS = 0.0
 ACEL_MAX_HUMANA_MS2 = 7.0
 DESACEL_MAX_HUMANA_MS2 = -8.5
-
-# ==================== REFERÊNCIA CIENTÍFICA ====================
-# Morin, J.B., Le Mat, Y., Osgnach, C., Barnabò, A., Pilati, A., Samozino, P., & di Prampero, P.E. (2021).
-# Individual acceleration-speed profile in-situ: a proof of concept in professional football players.
-# Journal of Biomechanics, 126, 110624. https://doi.org/10.1016/j.jbiomech.2021.110624
 
 # ==================== FUNÇÃO DE VALIDAÇÃO E FILTRAGEM ====================
 
@@ -295,27 +340,22 @@ def extract_athlete_from_line8(content):
             line8 = lines[7]  # Linha 8 (índice 7)
             
             if '# Athlete:' in line8 or '#Atleta:' in line8:
-                # Encontra a posição após os dois pontos
                 if ':' in line8:
                     after_colon = line8.split(':', 1)[1].strip()
                     
-                    # Tenta extrair entre aspas primeiro
                     match_quotes = re.search(r'"([^"]*)"', after_colon)
                     if match_quotes:
                         athlete = match_quotes.group(1).strip()
                         if athlete:
                             return athlete
                     
-                    # Se não houver aspas, pega até o primeiro ';' ou fim da linha
                     if ';' in after_colon:
                         athlete = after_colon.split(';')[0].strip()
                     else:
                         athlete = after_colon.strip()
                     
-                    # Remove caracteres indesejados
                     athlete = athlete.strip('"').strip("'").strip()
                     
-                    # Se o nome estiver vazio ou for apenas ';', retorna None
                     if athlete and athlete != '' and not athlete.startswith('#') and athlete != ';':
                         return athlete
         return None
@@ -326,7 +366,6 @@ def extract_athlete_from_line8(content):
 def extract_period_from_content(content):
     """
     Extrai o período do arquivo CSV.
-    Formato esperado: # Period: "NOME" ou # Period: NOME; ou # Period: NOME
     """
     try:
         lines = content.split('\n')
@@ -335,14 +374,12 @@ def extract_period_from_content(content):
                 if ':' in line:
                     after_colon = line.split(':', 1)[1].strip()
                     
-                    # Tenta extrair entre aspas
                     match_quotes = re.search(r'"([^"]*)"', after_colon)
                     if match_quotes:
                         periodo = match_quotes.group(1).strip()
                         if periodo:
                             return periodo
                     
-                    # Se não houver aspas, pega até o primeiro ';' ou fim da linha
                     if ';' in after_colon:
                         periodo = after_colon.split(';')[0].strip()
                     else:
@@ -360,17 +397,12 @@ def extract_period_from_content(content):
 def format_athlete_name(athlete):
     """
     Formata o nome do atleta para exibição consistente.
-    Ex: "L.SASHA" -> "L. SASHA"
-        "L.SASHA;" -> "L. SASHA"
-        "L. SASHA" -> "L. SASHA"
     """
     if not athlete:
         return athlete
     
-    # Remove caracteres especiais no final
     athlete = athlete.rstrip(';').strip()
     
-    # Adiciona espaço após ponto se não houver
     if '.' in athlete and ' ' not in athlete:
         parts = athlete.split('.')
         if len(parts) > 1:
@@ -380,154 +412,40 @@ def format_athlete_name(athlete):
 
 # ==================== FUNÇÃO DO PERFIL ACELERAÇÃO-VELOCIDADE ====================
 
-def fit_velocidade_aceleracao(velocidades, aceleracoes):
+def calcular_regressao_linear_asp(df, atleta_selecionado="Todos"):
     """
-    Ajusta a curva de relação Aceleração-Velocidade baseada no modelo físico:
-    a(v) = a0 * (1 - v/v0)
-    
-    Referência: Morin et al. (2021) - Journal of Biomechanics
+    Calcula a regressão linear para o Perfil Aceleração-Velocidade.
+    Se "Todos" os atletas, calcula com todos os pontos combinados.
+    Se atleta específico, calcula apenas para aquele atleta.
     """
-    mask = (velocidades > 0) & (aceleracoes > -5) & (aceleracoes < 10) & (~np.isnan(velocidades)) & (~np.isnan(aceleracoes))
-    v_clean = velocidades[mask]
-    a_clean = aceleracoes[mask]
-    
-    if len(v_clean) < 10:
-        return None
-    
-    # Filtrar outliers usando IQR
-    q1_a, q3_a = np.percentile(a_clean, [25, 75])
-    iqr_a = q3_a - q1_a
-    lower_bound_a = q1_a - 1.5 * iqr_a
-    upper_bound_a = q3_a + 1.5 * iqr_a
-    
-    q1_v, q3_v = np.percentile(v_clean, [25, 75])
-    iqr_v = q3_v - q1_v
-    lower_bound_v = q1_v - 1.5 * iqr_v
-    upper_bound_v = q3_v + 1.5 * iqr_v
-    
-    mask_outliers = (a_clean >= lower_bound_a) & (a_clean <= upper_bound_a) & \
-                    (v_clean >= lower_bound_v) & (v_clean <= upper_bound_v)
-    
-    v_filtered = v_clean[mask_outliers]
-    a_filtered = a_clean[mask_outliers]
-    
-    if len(v_filtered) < 8:
-        v_filtered = v_clean
-        a_filtered = a_clean
-    
-    try:
-        X = v_filtered.reshape(-1, 1)
-        y = a_filtered
-        
-        scaler_X = StandardScaler()
-        scaler_y = StandardScaler()
-        X_scaled = scaler_X.fit_transform(X)
-        y_scaled = scaler_y.fit_transform(y.reshape(-1, 1)).ravel()
-        
-        ransac = RANSACRegressor(min_samples=0.5, residual_threshold=np.std(y_scaled) * 1.5, max_trials=100, random_state=42)
-        ransac.fit(X_scaled, y_scaled)
-        
-        slope_scaled = ransac.estimator_.coef_[0]
-        intercept_scaled = ransac.estimator_.intercept_
-        
-        slope = slope_scaled * (scaler_y.scale_ / scaler_X.scale_)
-        intercept = scaler_y.mean_ + intercept_scaled * scaler_y.scale_ - slope * scaler_X.mean_
-        
-        y_pred = slope * v_filtered + intercept
-        ss_res = np.sum((a_filtered - y_pred) ** 2)
-        ss_tot = np.sum((a_filtered - np.mean(a_filtered)) ** 2)
-        r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-        
-        a0 = intercept
-        if a0 <= 0 or a0 > 8:
-            a0 = np.percentile(a_filtered[a_filtered > 0], 85) if np.any(a_filtered > 0) else 2.5
-            a0 = np.clip(a0, 1.5, 6.0)
-        
-        if slope < 0:
-            v0 = -a0 / slope
-        else:
-            a_positivas = a_filtered[a_filtered > 0.1]
-            v_correspondentes = v_filtered[a_filtered > 0.1]
-            if len(v_correspondentes) > 0:
-                v0 = np.percentile(v_correspondentes, 90) * 1.2
-            else:
-                v0 = np.max(v_filtered) * 1.1
-            v0 = np.clip(v0, 6.0, VEL_MAX_HUMANA_MS)
-            slope = -a0 / v0
-        
-        v0 = np.clip(v0, 6.0, VEL_MAX_HUMANA_MS)
-        p_max = a0 * v0 / 4
-        p_max = np.clip(p_max, 4.0, 20.0)
-        
-        return {
-            'a0': float(a0),
-            'v0': float(v0),
-            'slope': float(slope),
-            'intercept': float(intercept),
-            'r2': float(r2),
-            'v_max': float(np.max(v_filtered)),
-            'p_max': float(p_max),
-            'n_points': len(v_filtered)
-        }
-    except Exception:
-        try:
-            z_scores = np.abs(stats.zscore(a_clean))
-            mask_z = z_scores < 2.5
-            v_z = v_clean[mask_z]
-            a_z = a_clean[mask_z]
-            
-            if len(v_z) >= 5:
-                slope, intercept, r_value, p_value, std_err = stats.linregress(v_z, a_z)
-                
-                a0 = intercept
-                if a0 <= 0:
-                    a0 = np.percentile(a_z[a_z > 0], 75) if np.any(a_z > 0) else 2.5
-                    a0 = np.clip(a0, 1.5, 6.0)
-                
-                if slope < 0:
-                    v0 = -a0 / slope
-                else:
-                    v0 = np.percentile(v_z, 90) * 1.2
-                
-                v0 = np.clip(v0, 6.0, VEL_MAX_HUMANA_MS)
-                slope = -a0 / v0
-                p_max = a0 * v0 / 4
-                p_max = np.clip(p_max, 4.0, 20.0)
-                r2 = r_value ** 2
-                
-                return {
-                    'a0': float(a0),
-                    'v0': float(v0),
-                    'slope': float(slope),
-                    'intercept': float(intercept),
-                    'r2': float(r2),
-                    'v_max': float(np.max(v_z)),
-                    'p_max': float(p_max),
-                    'n_points': len(v_z)
-                }
-        except:
-            pass
-        
-        return None
-
-def calcular_asp_metrics(df):
-    """Calcula as métricas do Perfil Aceleração-Velocidade"""
+    # Filtrar dados com aceleração positiva e velocidade positiva
     df_sprints = df[(df['Acceleration'] > 0) & (df['Velocity'] > 0)].copy()
-    if len(df_sprints) < 10:
+    
+    if atleta_selecionado != "Todos":
+        df_sprints = df_sprints[df_sprints['Atleta'] == atleta_selecionado]
+    
+    if len(df_sprints) < 5:
         return None
     
     v_ms = df_sprints['Velocity'].values
     a_ms2 = df_sprints['Acceleration'].values
-    v_ms = np.clip(v_ms, 0, VEL_MAX_HUMANA_MS)
     
-    result = fit_velocidade_aceleracao(v_ms, a_ms2)
+    # Regressão linear simples
+    slope, intercept, r_value, p_value, std_err = stats.linregress(v_ms, a_ms2)
     
-    if result:
-        result['v_medio'] = np.mean(v_ms)
-        result['a_medio'] = np.mean(a_ms2)
-        result['num_sprints'] = len(df_sprints)
+    # Calcular velocidade máxima teórica (onde aceleração = 0)
+    v0_teorico = -intercept / slope if slope < 0 else np.max(v_ms) * 1.2
     
-    return result
+    return {
+        'slope': float(slope),
+        'intercept': float(intercept),
+        'r2': float(r_value ** 2),
+        'v_max_real': float(np.max(v_ms)),
+        'a_max_real': float(np.max(a_ms2)),
+        'v0_teorico': float(v0_teorico),
+        'n_points': len(v_ms),
+        'atleta': atleta_selecionado if atleta_selecionado != "Todos" else "Todos os atletas combinados"
+    }
 
 # ==================== FUNÇÕES PARA TRIMP ====================
 
@@ -616,27 +534,18 @@ def desenhar_linhas_divisorias(num_linhas, num_colunas):
                                       line=dict(color="rgba(255,255,255,0.7)", width=2, dash="dash")))
     return shapes, linhas_bins, colunas_bins
 
-# ==================== NOVAS FUNÇÕES PARA VISUALIZAÇÕES AVANÇADAS ====================
+# ==================== FUNÇÕES PARA VISUALIZAÇÕES AVANÇADAS ====================
 
 def calcular_metrica_esforco_acumulado(df):
     """Calcula métricas de esforço acumulado por zona"""
     if len(df) < 2:
         return None
     
-    # Calcular aceleração instantânea como derivada da velocidade
     df = df.sort_values('Seconds').copy()
     df['Accel_deriv'] = df['Velocity'].diff() / df['Seconds'].diff()
-    
-    # Calcular potência (simplificada: velocidade * aceleração)
     df['Potencia'] = df['Velocity'] * df['Acceleration'].clip(lower=0)
-    
-    # Calcular carga metabólica (simplificada)
     df['Carga_Metabolica'] = df['Velocity'] ** 2 * df['Acceleration'].clip(lower=0)
-    
-    # Identificar sprints (>25 km/h)
     df['Is_Sprint'] = df['Velocity'] * 3.6 > 25
-    
-    # Identificar mudanças de direção (desaceleração seguida de aceleração)
     df['Mudanca_Direcao'] = ((df['Acceleration'] < -2) & (df['Acceleration'].shift(-1) > 2)) | \
                              ((df['Acceleration'] > 2) & (df['Acceleration'].shift(1) < -2))
     
@@ -650,7 +559,7 @@ def criar_visualizacoes_avancadas_campo(df_tat_sample, bounds, periodo_nome, atl
     
     figuras = []
     
-    # 1. Mapa de Calor de Acelerações (Onde o atleta mais acelera)
+    # 1. Mapa de Calor de Acelerações
     fig_acel = go.Figure()
     for shape in desenhar_campo_futebol():
         fig_acel.add_shape(shape)
@@ -665,7 +574,7 @@ def criar_visualizacoes_avancadas_campo(df_tat_sample, bounds, periodo_nome, atl
             color=acel_z,
             colorscale='RdYlGn',
             showscale=True,
-            colorbar=dict(title="Aceleração (m/s²)"),
+            colorbar=dict(title="Aceleração (m/s²)", title_font=dict(color="white")),
             opacity=0.6
         ),
         text=[f"Acel: {a:.2f} m/s²<br>Vel: {v*3.6:.1f} km/h" for a, v in zip(acel_z, df_tat_sample['Velocity'])],
@@ -678,13 +587,14 @@ def criar_visualizacoes_avancadas_campo(df_tat_sample, bounds, periodo_nome, atl
         xaxis_title="Posição (m) - Comprimento",
         yaxis_title="Posição (m) - Largura",
         height=500,
-        xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2]),
-        yaxis=dict(range=[Y_MIN-2, Y_MAX+2]),
-        plot_bgcolor='rgba(34,139,34,0.2)'
+        xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2], gridcolor='rgba(255,255,255,0.1)'),
+        yaxis=dict(range=[Y_MIN-2, Y_MAX+2], gridcolor='rgba(255,255,255,0.1)'),
+        plot_bgcolor='rgba(34,139,34,0.2)',
+        paper_bgcolor='rgba(0,0,0,0)'
     )
     figuras.append(("⚡ Mapa de Acelerações", fig_acel))
     
-    # 2. Mapa de Potência (Velocidade x Aceleração)
+    # 2. Mapa de Potência
     fig_pot = go.Figure()
     for shape in desenhar_campo_futebol():
         fig_pot.add_shape(shape)
@@ -700,7 +610,7 @@ def criar_visualizacoes_avancadas_campo(df_tat_sample, bounds, periodo_nome, atl
             color=potencia,
             colorscale='Plasma',
             showscale=True,
-            colorbar=dict(title="Potência (m²/s³)"),
+            colorbar=dict(title="Potência (m²/s³)", title_font=dict(color="white")),
             opacity=0.6
         ),
         text=[f"Pot: {p:.2f}<br>Vel: {v*3.6:.1f} km/h<br>Acel: {a:.2f}" 
@@ -714,13 +624,14 @@ def criar_visualizacoes_avancadas_campo(df_tat_sample, bounds, periodo_nome, atl
         xaxis_title="Posição (m) - Comprimento",
         yaxis_title="Posição (m) - Largura",
         height=500,
-        xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2]),
-        yaxis=dict(range=[Y_MIN-2, Y_MAX+2]),
-        plot_bgcolor='rgba(34,139,34,0.2)'
+        xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2], gridcolor='rgba(255,255,255,0.1)'),
+        yaxis=dict(range=[Y_MIN-2, Y_MAX+2], gridcolor='rgba(255,255,255,0.1)'),
+        plot_bgcolor='rgba(34,139,34,0.2)',
+        paper_bgcolor='rgba(0,0,0,0)'
     )
     figuras.append(("💪 Mapa de Potência", fig_pot))
     
-    # 3. Mapa de Sprints (Zonas onde ocorrem sprints)
+    # 3. Mapa de Sprints
     fig_sprints = go.Figure()
     for shape in desenhar_campo_futebol():
         fig_sprints.add_shape(shape)
@@ -750,13 +661,14 @@ def criar_visualizacoes_avancadas_campo(df_tat_sample, bounds, periodo_nome, atl
         xaxis_title="Posição (m) - Comprimento",
         yaxis_title="Posição (m) - Largura",
         height=500,
-        xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2]),
-        yaxis=dict(range=[Y_MIN-2, Y_MAX+2]),
-        plot_bgcolor='rgba(34,139,34,0.2)'
+        xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2], gridcolor='rgba(255,255,255,0.1)'),
+        yaxis=dict(range=[Y_MIN-2, Y_MAX+2], gridcolor='rgba(255,255,255,0.1)'),
+        plot_bgcolor='rgba(34,139,34,0.2)',
+        paper_bgcolor='rgba(0,0,0,0)'
     )
     figuras.append(("🏃 Mapa de Sprints", fig_sprints))
     
-    # 4. Mapa de Frequência Cardíaca (sobreposto no campo)
+    # 4. Mapa de Frequência Cardíaca
     fig_fc_campo = go.Figure()
     for shape in desenhar_campo_futebol():
         fig_fc_campo.add_shape(shape)
@@ -770,7 +682,7 @@ def criar_visualizacoes_avancadas_campo(df_tat_sample, bounds, periodo_nome, atl
             color=df_tat_sample['HeartRate'],
             colorscale='Hot',
             showscale=True,
-            colorbar=dict(title="FC (bpm)"),
+            colorbar=dict(title="FC (bpm)", title_font=dict(color="white")),
             opacity=0.6
         ),
         text=[f"FC: {fc:.0f} bpm<br>Vel: {v*3.6:.1f} km/h" 
@@ -784,13 +696,14 @@ def criar_visualizacoes_avancadas_campo(df_tat_sample, bounds, periodo_nome, atl
         xaxis_title="Posição (m) - Comprimento",
         yaxis_title="Posição (m) - Largura",
         height=500,
-        xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2]),
-        yaxis=dict(range=[Y_MIN-2, Y_MAX+2]),
-        plot_bgcolor='rgba(34,139,34,0.2)'
+        xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2], gridcolor='rgba(255,255,255,0.1)'),
+        yaxis=dict(range=[Y_MIN-2, Y_MAX+2], gridcolor='rgba(255,255,255,0.1)'),
+        plot_bgcolor='rgba(34,139,34,0.2)',
+        paper_bgcolor='rgba(0,0,0,0)'
     )
     figuras.append(("❤️ Mapa de Frequência Cardíaca", fig_fc_campo))
     
-    # 5. Mapa de Eficiência (Relação Velocidade/FC)
+    # 5. Mapa de Eficiência
     fig_eficiencia = go.Figure()
     for shape in desenhar_campo_futebol():
         fig_eficiencia.add_shape(shape)
@@ -807,7 +720,7 @@ def criar_visualizacoes_avancadas_campo(df_tat_sample, bounds, periodo_nome, atl
             color=eficiencia,
             colorscale='Viridis',
             showscale=True,
-            colorbar=dict(title="Eficiência (m/s por 100bpm)"),
+            colorbar=dict(title="Eficiência (m/s por 100bpm)", title_font=dict(color="white")),
             opacity=0.6
         ),
         text=[f"Eficiência: {e:.2f}<br>Vel: {v*3.6:.1f} km/h<br>FC: {fc:.0f}" 
@@ -821,9 +734,10 @@ def criar_visualizacoes_avancadas_campo(df_tat_sample, bounds, periodo_nome, atl
         xaxis_title="Posição (m) - Comprimento",
         yaxis_title="Posição (m) - Largura",
         height=500,
-        xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2]),
-        yaxis=dict(range=[Y_MIN-2, Y_MAX+2]),
-        plot_bgcolor='rgba(34,139,34,0.2)'
+        xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2], gridcolor='rgba(255,255,255,0.1)'),
+        yaxis=dict(range=[Y_MIN-2, Y_MAX+2], gridcolor='rgba(255,255,255,0.1)'),
+        plot_bgcolor='rgba(34,139,34,0.2)',
+        paper_bgcolor='rgba(0,0,0,0)'
     )
     figuras.append(("🎯 Mapa de Eficiência", fig_eficiencia))
     
@@ -858,9 +772,10 @@ def criar_visualizacoes_avancadas_campo(df_tat_sample, bounds, periodo_nome, atl
         xaxis_title="Posição (m) - Comprimento",
         yaxis_title="Posição (m) - Largura",
         height=500,
-        xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2]),
-        yaxis=dict(range=[Y_MIN-2, Y_MAX+2]),
-        plot_bgcolor='rgba(34,139,34,0.2)'
+        xaxis=dict(scaleanchor="y", scaleratio=1, range=[X_MIN-2, X_MAX+2], gridcolor='rgba(255,255,255,0.1)'),
+        yaxis=dict(range=[Y_MIN-2, Y_MAX+2], gridcolor='rgba(255,255,255,0.1)'),
+        plot_bgcolor='rgba(34,139,34,0.2)',
+        paper_bgcolor='rgba(0,0,0,0)'
     )
     figuras.append(("🔄 Mudanças de Direção", fig_direcao))
     
@@ -978,14 +893,12 @@ def load_data(uploaded_file):
     try:
         content = uploaded_file.getvalue().decode('utf-8')
         
-        # Extrai e formata o nome do atleta
         atleta_raw = extract_athlete_from_line8(content)
         if atleta_raw is None or atleta_raw == "":
             atleta = "Não identificado"
         else:
             atleta = format_athlete_name(atleta_raw)
         
-        # Extrai o período
         periodo = extract_period_from_content(content)
         
         data_start = 0
@@ -1153,7 +1066,6 @@ if uploaded_files:
                 st.success(f"✅ {len(all_data)} arquivos carregados com sucesso. Dados validados com limites fisiológicos (velocidade máxima: {VEL_MAX_HUMANA_MS*3.6:.0f} km/h, aceleração: {ACEL_MAX_HUMANA_MS2:.0f} m/s²)")
                 st.markdown('</div>', unsafe_allow_html=True)
                 
-                # Mostrar atletas carregados
                 atletas_list = ", ".join([f"{a} ({p})" for a, p in zip(all_atletas, all_periodos)])
                 st.markdown(f'<div class="info-card">📋 Atletas carregados: {atletas_list}</div>', unsafe_allow_html=True)
             else:
@@ -1378,13 +1290,12 @@ if uploaded_files:
             start_time_min, end_time_min = tempo_range
             start_time, end_time = start_time_min * 60, end_time_min * 60
         
-        # 6. Seleção de Atletas - MULTIPLA SELEÇÃO MELHORADA
+        # 6. Seleção de Atletas
         st.sidebar.markdown("---")
         st.sidebar.header("🏅 6. Selecionar Atleta(s)")
         
-        # Criar opções de seleção com "Todos os atletas" como opção especial
         atleta_options_display = ["🏆 Todos os atletas"]
-        atleta_mapping = []  # Mapeamento para os índices reais
+        atleta_mapping = []
         
         for i, (atleta, periodo) in enumerate(zip(st.session_state.atletas, st.session_state.periodos_orig)):
             if atleta and atleta != "Não identificado" and not atleta.startswith('#'):
@@ -1400,7 +1311,6 @@ if uploaded_files:
                 atleta_options_display.append(display_name)
                 atleta_mapping.append(i)
         
-        # Seleção múltipla de atletas
         selected_atleta_indices_display = st.sidebar.multiselect(
             "Escolha os atletas",
             options=range(len(atleta_options_display)),
@@ -1409,14 +1319,11 @@ if uploaded_files:
             help="Selecione 'Todos os atletas' para visualizar todos ou escolha atletas específicos"
         )
         
-        # Processar a seleção
         if 0 in selected_atleta_indices_display:
-            # Selecionou "Todos os atletas"
             selected_original_indices = list(range(len(st.session_state.atletas)))
             selected_atletas_nomes = st.session_state.atletas
             st.sidebar.success(f"✅ {len(selected_original_indices)} atletas selecionados")
         else:
-            # Selecionou atletas específicos
             selected_original_indices = [atleta_mapping[i-1] for i in selected_atleta_indices_display if i > 0]
             selected_atletas_nomes = [st.session_state.atletas[i] for i in selected_original_indices]
             st.sidebar.info(f"✅ {len(selected_original_indices)} atleta(s) selecionado(s)")
@@ -1618,7 +1525,6 @@ if uploaded_files:
                     </div>
                     """, unsafe_allow_html=True)
                 
-                # Exibir quais atletas estão no período
                 atletas_no_periodo = df_periodo['Atleta'].unique()
                 atletas_str = ", ".join(atletas_no_periodo[:3])
                 if len(atletas_no_periodo) > 3:
@@ -1635,7 +1541,7 @@ if uploaded_files:
                 "📊 Comparação Esportiva"
             ])
             
-            # TAB 1: MAPA TÁTICO (SEM 3D)
+            # TAB 1: MAPA TÁTICO
             with tab1:
                 st.subheader("🗺️ Mapa Tático de Posicionamento")
                 
@@ -1666,7 +1572,6 @@ if uploaded_files:
                     fig_map.add_shape(type="line", x0=(lon_min+lon_max)/2, x1=(lon_min+lon_max)/2, y0=lat_min, y1=lat_max,
                                       line=dict(color="white", width=1, dash="dash"))
                 
-                # Plotar trajetórias por atleta com cores diferentes
                 if atleta_mapa == "Todos":
                     atletas_unicos = df_mapa['Atleta'].unique()
                     cores = px.colors.qualitative.Plotly
@@ -1702,7 +1607,7 @@ if uploaded_files:
                                       title=f"Trajetória - {atleta_mapa if atleta_mapa != 'Todos' else 'Múltiplos atletas'} - {periodo_mapa} - {st.session_state.get('nome_estadio', 'Campo')}")
                 st.plotly_chart(fig_map, use_container_width=True)
             
-            # TAB 2: ANÁLISE POR ZONAS (COM NOVAS VISUALIZAÇÕES)
+            # TAB 2: ANÁLISE POR ZONAS
             with tab2:
                 st.subheader("📐 Análise Tática por Zonas do Campo")
                 st.markdown(f"Campo com dimensões oficiais: **{CAMPO_COMPRIMENTO}m x {CAMPO_LARGURA}m**")
@@ -1752,7 +1657,6 @@ if uploaded_files:
                     st.warning("⚠️ Limites do estádio não definidos.")
                     st.stop()
                 
-                # Visualizações avançadas
                 st.markdown("### 🎯 Visualizações Avançadas de Performance")
                 visualizacoes_avancadas = criar_visualizacoes_avancadas_campo(df_tat_sample, bounds, periodo_tatica, atleta_tatica)
                 
@@ -1760,7 +1664,6 @@ if uploaded_files:
                     with st.expander(f"{titulo}", expanded=False):
                         st.plotly_chart(fig, use_container_width=True)
                 
-                # Análise de zonas tradicional
                 st.markdown("### 🗺️ Análise por Zonas do Campo")
                 
                 col_lin, col_col = st.columns(2)
@@ -1799,7 +1702,6 @@ if uploaded_files:
                 total_vel_peso = (zona_metrics['Vel_Média'] * zona_metrics['Contagem']).sum()
                 zona_metrics['Intensidade (%)'] = ((zona_metrics['Vel_Média'] * zona_metrics['Contagem']) / total_vel_peso * 100).round(1) if total_vel_peso > 0 else 0
                 
-                # Converter velocidades para km/h
                 zona_metrics['Vel_Média'] = zona_metrics['Vel_Média'] * 3.6
                 zona_metrics['Vel_Máx'] = zona_metrics['Vel_Máx'] * 3.6
                 
@@ -1899,12 +1801,10 @@ if uploaded_files:
                 csv_tatico = zona_metrics.reset_index().to_csv(index=False)
                 st.download_button("📥 Exportar análise tática", csv_tatico, f"analise_tatica_{atleta_tatica}_{periodo_tatica}.csv")
             
-            
-            # TAB 3: PERFIL ACELERAÇÃO-VELOCIDADE (REGRESSÃO LINEAR - FORMATO IMAGEM 2)
+            # TAB 3: PERFIL ACELERAÇÃO-VELOCIDADE (COM REGRESSÃO LINEAR DINÂMICA)
             with tab3:
                 st.subheader("⚡ Perfil Aceleração-Velocidade (Acceleration-Speed Profile)")
                 
-                # Referência científica
                 with st.expander("📄 **Referência Científica**"):
                     st.markdown("""
                     **Modelo:** a(v) = a₀ - k·v (Regressão Linear)
@@ -1928,49 +1828,50 @@ if uploaded_files:
                 
                 df_asp_atual = dfs_por_periodo[periodo_asp]
                 
-                if atleta_asp != "Todos":
-                    df_asp_atual = df_asp_atual[df_asp_atual['Atleta'] == atleta_asp]
-                
-                asp_results = {}
-                with st.spinner("Calculando regressão linear aceleração-velocidade..."):
-                    if atleta_asp == "Todos":
-                        for atleta in df_asp_atual['Atleta'].unique():
-                            df_atleta = df_asp_atual[df_asp_atual['Atleta'] == atleta]
-                            df_sprints = df_atleta[(df_atleta['Acceleration'] > 0) & (df_atleta['Velocity'] > 0)].copy()
-                            
-                            if len(df_sprints) >= 5:
-                                v_ms = df_sprints['Velocity'].values
-                                a_ms2 = df_sprints['Acceleration'].values
-                                
-                                # Regressão linear simples
-                                slope, intercept, r_value, p_value, std_err = stats.linregress(v_ms, a_ms2)
-                                
-                                asp_results[atleta] = {
-                                    'slope': float(slope),
-                                    'intercept': float(intercept),
-                                    'r2': float(r_value ** 2),
-                                    'v_max': float(np.max(v_ms)),
-                                    'a_max': float(np.max(a_ms2)),
-                                    'n_points': len(v_ms)
-                                }
+                # Calcular regressão para o atleta selecionado ou para todos combinados
+                if atleta_asp == "Todos":
+                    # Para "Todos", combina todos os pontos dos atletas selecionados
+                    df_combinado = df_asp_atual[(df_asp_atual['Acceleration'] > 0) & (df_asp_atual['Velocity'] > 0)].copy()
+                    if len(df_combinado) >= 5:
+                        v_ms = df_combinado['Velocity'].values
+                        a_ms2 = df_combinado['Acceleration'].values
+                        slope, intercept, r_value, p_value, std_err = stats.linregress(v_ms, a_ms2)
+                        v0_teorico = -intercept / slope if slope < 0 else np.max(v_ms) * 1.2
+                        asp_result = {
+                            'slope': float(slope),
+                            'intercept': float(intercept),
+                            'r2': float(r_value ** 2),
+                            'v_max_real': float(np.max(v_ms)),
+                            'a_max_real': float(np.max(a_ms2)),
+                            'v0_teorico': float(v0_teorico),
+                            'n_points': len(v_ms),
+                            'atleta': "Todos os atletas combinados"
+                        }
                     else:
-                        df_sprints = df_asp_atual[(df_asp_atual['Acceleration'] > 0) & (df_asp_atual['Velocity'] > 0)].copy()
-                        if len(df_sprints) >= 5:
-                            v_ms = df_sprints['Velocity'].values
-                            a_ms2 = df_sprints['Acceleration'].values
-                            
-                            slope, intercept, r_value, p_value, std_err = stats.linregress(v_ms, a_ms2)
-                            
-                            asp_results[atleta_asp] = {
-                                'slope': float(slope),
-                                'intercept': float(intercept),
-                                'r2': float(r_value ** 2),
-                                'v_max': float(np.max(v_ms)),
-                                'a_max': float(np.max(a_ms2)),
-                                'n_points': len(v_ms)
-                            }
+                        asp_result = None
+                else:
+                    # Para um atleta específico
+                    df_atleta = df_asp_atual[df_asp_atual['Atleta'] == atleta_asp]
+                    df_sprints = df_atleta[(df_atleta['Acceleration'] > 0) & (df_atleta['Velocity'] > 0)].copy()
+                    if len(df_sprints) >= 5:
+                        v_ms = df_sprints['Velocity'].values
+                        a_ms2 = df_sprints['Acceleration'].values
+                        slope, intercept, r_value, p_value, std_err = stats.linregress(v_ms, a_ms2)
+                        v0_teorico = -intercept / slope if slope < 0 else np.max(v_ms) * 1.2
+                        asp_result = {
+                            'slope': float(slope),
+                            'intercept': float(intercept),
+                            'r2': float(r_value ** 2),
+                            'v_max_real': float(np.max(v_ms)),
+                            'a_max_real': float(np.max(a_ms2)),
+                            'v0_teorico': float(v0_teorico),
+                            'n_points': len(v_ms),
+                            'atleta': atleta_asp
+                        }
+                    else:
+                        asp_result = None
                 
-                if not asp_results:
+                if asp_result is None:
                     st.warning("⚠️ Dados insuficientes para calcular o Perfil Aceleração-Velocidade. São necessários pelo menos 5 pontos com aceleração positiva e velocidade > 0.")
                 else:
                     st.markdown("### 📈 Curva Aceleração-Velocidade (ASP)")
@@ -1978,119 +1879,130 @@ if uploaded_files:
                     
                     fig_asp = go.Figure()
                     
-                    cores_asp = px.colors.qualitative.Plotly
+                    # Obter os dados brutos para plotagem
+                    if atleta_asp == "Todos":
+                        df_plot = df_asp_atual[(df_asp_atual['Acceleration'] > 0) & (df_asp_atual['Velocity'] > 0)].copy()
+                    else:
+                        df_plot = df_asp_atual[(df_asp_atual['Atleta'] == atleta_asp) & (df_asp_atual['Acceleration'] > 0) & (df_asp_atual['Velocity'] > 0)].copy()
                     
-                    for idx, (atleta, metrics) in enumerate(asp_results.items()):
-                        df_atleta = dfs_por_periodo[periodo_asp]
-                        if atleta != "Todos":
-                            df_atleta = df_atleta[df_atleta['Atleta'] == atleta]
-                        df_sprints = df_atleta[(df_atleta['Acceleration'] > 0) & (df_atleta['Velocity'] > 0)].copy()
-                        
-                        if len(df_sprints) > 0:
-                            v_ms = df_sprints['Velocity'].values
-                            a_ms2 = df_sprints['Acceleration'].values
-                            
-                            slope_val = metrics['slope']
-                            intercept_val = metrics['intercept']
-                            r2_val = metrics['r2']
-                            
-                            # ========== 1. PONTOS DOS DADOS BRUTOS ==========
-                            fig_asp.add_trace(go.Scatter(
-                                x=v_ms, y=a_ms2,
-                                mode='markers',
-                                name=f'{atleta} - Dados',
-                                marker=dict(
-                                    size=6,
-                                    color=cores_asp[idx % len(cores_asp)],
-                                    opacity=0.6,
-                                    symbol='circle'
-                                ),
-                                hovertemplate=f'{atleta}<br>Vel: %{{x:.2f}} m/s (%{{x*3.6:.1f}} km/h)<br>Acel: %{{y:.2f}} m/s²<extra></extra>'
-                            ))
-                            
-                            # ========== 2. LINHA DE REGRESSÃO LINEAR ==========
-                            # Gerar linha de regressão do eixo Y até o ponto onde a aceleração se anula
-                            v0_teorico = -intercept_val / slope_val if slope_val < 0 else np.max(v_ms) * 1.2
-                            v_fit = np.linspace(0, v0_teorico, 100)
-                            a_fit = intercept_val + slope_val * v_fit
-                            a_fit = np.maximum(a_fit, 0)  # Não permitir valores negativos
-                            
-                            fig_asp.add_trace(go.Scatter(
-                                x=v_fit, y=a_fit,
-                                mode='lines',
-                                name=f'{atleta} - Regressão Linear',
-                                line=dict(
-                                    color=cores_asp[idx % len(cores_asp)],
-                                    width=3,
-                                    dash='solid'
-                                ),
-                                hovertemplate=f'{atleta}<br>a = {slope_val:.3f}v + {intercept_val:.2f}<br>R² = {r2_val:.3f}<extra></extra>'
-                            ))
-                            
-                            # ========== 3. MARCAÇÃO DO A₀ NO EIXO Y ==========
-                            fig_asp.add_trace(go.Scatter(
-                                x=[0], 
-                                y=[intercept_val],
-                                mode='markers',
-                                name=f'{atleta} - A₀',
-                                marker=dict(
-                                    size=10,
-                                    color=cores_asp[idx % len(cores_asp)],
-                                    symbol='circle',
-                                    line=dict(width=2, color='white')
-                                ),
-                                hovertemplate=f'A₀ = {intercept_val:.2f} m/s²<extra></extra>'
-                            ))
-                            
-                            # ========== 4. ANOTAÇÃO DA EQUAÇÃO NO GRÁFICO ==========
-                            x_max_v = np.max(v_ms)
-                            y_max_a = np.max(a_ms2)
-                            
-                            fig_asp.add_annotation(
-                                x=x_max_v * 0.65,
-                                y=y_max_a * 0.85,
-                                xref="x",
-                                yref="y",
-                                text=f"y = {slope_val:.3f}x + {intercept_val:.2f}<br>R² = {r2_val:.3f}",
-                                showarrow=False,
-                                font=dict(size=12, color=cores_asp[idx % len(cores_asp)], weight="bold"),
-                                bgcolor="rgba(0,0,0,0.6)",
-                                borderpad=6,
-                                borderwidth=1,
-                                bordercolor=cores_asp[idx % len(cores_asp)],
-                                align="left"
-                            )
-                            
-                            # Anotação do A₀
-                            fig_asp.add_annotation(
-                                x=0,
-                                y=intercept_val,
-                                xref="x",
-                                yref="y",
-                                text=f"A₀ = {intercept_val:.2f} m/s²",
-                                showarrow=True,
-                                arrowhead=2,
-                                arrowsize=1,
-                                arrowwidth=2,
-                                arrowcolor=cores_asp[idx % len(cores_asp)],
-                                ax=-40,
-                                ay=0,
-                                font=dict(size=10, color=cores_asp[idx % len(cores_asp)]),
-                                bgcolor="rgba(0,0,0,0.5)",
-                                borderpad=2
-                            )
+                    v_ms = df_plot['Velocity'].values
+                    a_ms2 = df_plot['Acceleration'].values
                     
-                    # Calcular limites dos eixos
-                    max_a = max([m['a_max'] for m in asp_results.values()]) if asp_results else 5
-                    max_v = max([m['v_max'] for m in asp_results.values()]) if asp_results else 10
-                    max_intercept = max([m['intercept'] for m in asp_results.values()]) if asp_results else max_a
+                    slope_val = asp_result['slope']
+                    intercept_val = asp_result['intercept']
+                    r2_val = asp_result['r2']
+                    v_max_real = asp_result['v_max_real']
+                    a_max_real = asp_result['a_max_real']
+                    
+                    # ========== 1. PONTOS DOS DADOS BRUTOS ==========
+                    fig_asp.add_trace(go.Scatter(
+                        x=v_ms, y=a_ms2,
+                        mode='markers',
+                        name=f'{asp_result["atleta"]} - Dados',
+                        marker=dict(
+                            size=7,
+                            color='rgba(100, 150, 255, 0.5)',
+                            opacity=0.5,
+                            symbol='circle'
+                        ),
+                        hovertemplate=f'Vel: %{{x:.2f}} m/s (%{{x*3.6:.1f}} km/h)<br>Acel: %{{y:.2f}} m/s²<extra></extra>'
+                    ))
+                    
+                    # ========== 2. LINHA DE REGRESSÃO LINEAR (DESTACADA) ==========
+                    v_fit = np.linspace(0, asp_result['v0_teorico'], 100)
+                    a_fit = intercept_val + slope_val * v_fit
+                    a_fit = np.maximum(a_fit, 0)
+                    
+                    fig_asp.add_trace(go.Scatter(
+                        x=v_fit, y=a_fit,
+                        mode='lines',
+                        name=f'{asp_result["atleta"]} - Regressão Linear',
+                        line=dict(
+                            color='#00ff88',
+                            width=4,
+                            dash='solid'
+                        ),
+                        hovertemplate=f'a = {slope_val:.3f}v + {intercept_val:.2f}<br>R² = {r2_val:.3f}<extra></extra>'
+                    ))
+                    
+                    # ========== 3. MARCAÇÃO DO A₀ ==========
+                    fig_asp.add_trace(go.Scatter(
+                        x=[0], 
+                        y=[intercept_val],
+                        mode='markers',
+                        name=f'A₀',
+                        marker=dict(
+                            size=12,
+                            color='#00ff88',
+                            symbol='circle',
+                            line=dict(width=2, color='white')
+                        ),
+                        hovertemplate=f'A₀ = {intercept_val:.2f} m/s²<extra></extra>'
+                    ))
+                    
+                    # ========== 4. ANOTAÇÃO DA EQUAÇÃO DESTACADA ==========
+                    x_max_v = np.max(v_ms)
+                    y_max_a = np.max(a_ms2)
+                    
+                    fig_asp.add_annotation(
+                        x=x_max_v * 0.65,
+                        y=y_max_a * 0.85,
+                        xref="x",
+                        yref="y",
+                        text=f"<b>Regressão Linear</b><br>y = {slope_val:.3f}x + {intercept_val:.2f}<br>R² = {r2_val:.3f}",
+                        showarrow=False,
+                        font=dict(size=13, color='#00ff88', weight="bold"),
+                        bgcolor="rgba(0,0,0,0.7)",
+                        borderpad=8,
+                        borderwidth=2,
+                        bordercolor='#00ff88',
+                        align="left"
+                    )
+                    
+                    # Anotação do A₀
+                    fig_asp.add_annotation(
+                        x=0,
+                        y=intercept_val,
+                        xref="x",
+                        yref="y",
+                        text=f"A₀ = {intercept_val:.2f} m/s²",
+                        showarrow=True,
+                        arrowhead=2,
+                        arrowsize=1,
+                        arrowwidth=2,
+                        arrowcolor='#00ff88',
+                        ax=-50,
+                        ay=0,
+                        font=dict(size=11, color='#00ff88', weight="bold"),
+                        bgcolor="rgba(0,0,0,0.6)",
+                        borderpad=4
+                    )
+                    
+                    # Anotação dos valores reais máximos
+                    fig_asp.add_annotation(
+                        x=v_max_real,
+                        y=a_max_real,
+                        xref="x",
+                        yref="y",
+                        text=f"<b>Performance Máxima</b><br>vₘₐₓ = {v_max_real:.2f} m/s ({v_max_real*3.6:.1f} km/h)<br>aₘₐₓ = {a_max_real:.2f} m/s²",
+                        showarrow=True,
+                        arrowhead=2,
+                        arrowsize=1,
+                        arrowwidth=2,
+                        arrowcolor='gold',
+                        ax=40,
+                        ay=-40,
+                        font=dict(size=10, color='gold'),
+                        bgcolor="rgba(0,0,0,0.6)",
+                        borderpad=4
+                    )
                     
                     fig_asp.update_layout(
                         title=f"<b>Perfil Aceleração-Velocidade - {periodo_asp}</b>",
                         xaxis=dict(
                             title="<b>Velocidade (m/s)</b>", 
                             gridcolor='rgba(255,255,255,0.2)',
-                            range=[-0.5, max_v * 1.1],
+                            range=[-0.5, max(v_max_real, asp_result['v0_teorico']) * 1.1],
                             showgrid=True,
                             zeroline=True,
                             zerolinecolor='rgba(255,255,255,0.4)',
@@ -2100,113 +2012,96 @@ if uploaded_files:
                         yaxis=dict(
                             title="<b>Aceleração (m/s²)</b>", 
                             gridcolor='rgba(255,255,255,0.2)',
-                            range=[-0.5, max_intercept * 1.1],
+                            range=[-0.5, max(intercept_val, a_max_real) * 1.15],
                             showgrid=True,
                             zeroline=True,
                             zerolinecolor='rgba(255,255,255,0.4)',
                             zerolinewidth=1,
                             tickfont=dict(size=12)
                         ),
-                        height=550,
+                        height=600,
                         legend=dict(
                             orientation="h", 
                             yanchor="bottom", 
                             y=1.02, 
                             xanchor="center", 
                             x=0.5,
-                            bgcolor='rgba(0,0,0,0.5)',
-                            font=dict(size=11)
+                            bgcolor='rgba(0,0,0,0.6)',
+                            font=dict(size=11, color='white')
                         ),
                         plot_bgcolor='rgba(0,0,0,0.2)',
                         paper_bgcolor='rgba(0,0,0,0)',
                         hovermode='closest',
-                        margin=dict(l=70, r=70, t=70, b=70)
+                        margin=dict(l=80, r=80, t=80, b=80)
                     )
                     
                     st.plotly_chart(fig_asp, use_container_width=True)
                     
                     st.markdown("### 📊 Métricas do Perfil Aceleração-Velocidade")
                     
-                    # Criar DataFrame com métricas
-                    dados_asp = []
-                    for atleta, metrics in asp_results.items():
-                        a0 = metrics['intercept']
-                        k = abs(metrics['slope'])
-                        v0 = a0 / k if k > 0 else metrics['v_max'] * 1.2
-                        
-                        dados_asp.append({
-                            'Atleta': atleta,
-                            'a₀ (m/s²)': round(a0, 2),
-                            'k (s⁻¹)': round(k, 3),
-                            'v₀ (m/s)': round(v0, 2),
-                            'v₀ (km/h)': round(v0 * 3.6, 1),
-                            'vₘₐₓ Real (m/s)': round(metrics['v_max'], 2),
-                            'aₘₐₓ Real (m/s²)': round(metrics['a_max'], 2),
-                            'R²': round(metrics['r2'], 3),
-                            'Equação': f"a = {metrics['slope']:.3f}v + {metrics['intercept']:.2f}",
-                            'Pontos': metrics['n_points']
-                        })
+                    a0 = asp_result['intercept']
+                    k = abs(asp_result['slope'])
+                    v0 = asp_result['v0_teorico']
                     
-                    asp_df = pd.DataFrame(dados_asp)
-                    
-                    def qualidade_r2(r2):
-                        if r2 >= 0.8: return '🟢 Excelente'
-                        elif r2 >= 0.6: return '🟡 Bom'
-                        elif r2 >= 0.4: return '🟠 Moderado'
-                        else: return '🔴 Baixo'
-                    
-                    asp_df['Qualidade'] = asp_df['R²'].apply(qualidade_r2)
-                    
-                    st.dataframe(asp_df, use_container_width=True)
-                    
-                    st.markdown("### 🎯 Interpretação dos Resultados")
-                    col_asp_metrics1, col_asp_metrics2, col_asp_metrics3, col_asp_metrics4 = st.columns(4)
+                    col_asp_metrics1, col_asp_metrics2, col_asp_metrics3, col_asp_metrics4, col_asp_metrics5 = st.columns(5)
                     
                     with col_asp_metrics1:
-                        a0_medio = asp_df['a₀ (m/s²)'].mean()
                         st.markdown(f"""
                         <div class="metric-card">
-                            <div class="metric-value">{a0_medio:.2f}</div>
+                            <div class="metric-value">{a0:.2f}</div>
                             <div class="metric-label">a₀ (m/s²)</div>
                             <div style="font-size:0.7rem">⚡ Aceleração máxima teórica</div>
                         </div>
                         """, unsafe_allow_html=True)
                     
                     with col_asp_metrics2:
-                        a_max_real = asp_df['aₘₐₓ Real (m/s²)'].mean()
                         st.markdown(f"""
                         <div class="metric-card">
-                            <div class="metric-value">{a_max_real:.2f}</div>
-                            <div class="metric-label">aₘₐₓ Real (m/s²)</div>
-                            <div style="font-size:0.7rem">💪 Aceleração máxima atingida</div>
+                            <div class="metric-value">{k:.3f}</div>
+                            <div class="metric-label">k (s⁻¹)</div>
+                            <div style="font-size:0.7rem">📉 Taxa de declínio</div>
                         </div>
                         """, unsafe_allow_html=True)
                     
                     with col_asp_metrics3:
-                        v0_medio = asp_df['v₀ (km/h)'].mean()
                         st.markdown(f"""
                         <div class="metric-card">
-                            <div class="metric-value">{v0_medio:.1f}</div>
-                            <div class="metric-label">v₀ Teórico (km/h)</div>
+                            <div class="metric-value">{v0:.1f}</div>
+                            <div class="metric-label">v₀ (km/h)</div>
                             <div style="font-size:0.7rem">🏃 Velocidade máxima teórica</div>
                         </div>
                         """, unsafe_allow_html=True)
                     
                     with col_asp_metrics4:
-                        v_max_real = asp_df['vₘₐₓ Real (km/h)'].mean()
                         st.markdown(f"""
                         <div class="metric-card">
-                            <div class="metric-value">{v_max_real:.1f}</div>
+                            <div class="metric-value">{asp_result['a_max_real']:.2f}</div>
+                            <div class="metric-label">aₘₐₓ Real (m/s²)</div>
+                            <div style="font-size:0.7rem">💪 Aceleração máxima atingida</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with col_asp_metrics5:
+                        st.markdown(f"""
+                        <div class="metric-card">
+                            <div class="metric-value">{asp_result['v_max_real'] * 3.6:.1f}</div>
                             <div class="metric-label">vₘₐₓ Real (km/h)</div>
                             <div style="font-size:0.7rem">⚡ Velocidade máxima atingida</div>
                         </div>
                         """, unsafe_allow_html=True)
                     
                     st.markdown('<div class="info-card">', unsafe_allow_html=True)
-                    st.info("📊 **Regressão Linear Aplicada:** Ajuste linear simples aos dados de aceleração-velocidade. A equação exibida é calculada a partir dos dados brutos do atleta.\n\n📌 **Interpretação:** A equação da reta (y = mx + b) e o R² são calculados dinamicamente com base nos dados carregados.")
-                    st.markdown('</div>', unsafe_allow_html=True)
                     
-                                                    
+                    qualidade = "🟢 Excelente" if asp_result['r2'] >= 0.8 else "🟡 Bom" if asp_result['r2'] >= 0.6 else "🟠 Moderado" if asp_result['r2'] >= 0.4 else "🔴 Baixo"
+                    
+                    st.info(f"📊 **Regressão Linear Aplicada:** Ajuste linear simples aos dados de aceleração-velocidade.\n\n"
+                            f"**Equação:** a = {asp_result['slope']:.3f} × v + {asp_result['intercept']:.2f}\n\n"
+                            f"**R² = {asp_result['r2']:.3f}** ({qualidade})\n\n"
+                            f"**Pontos utilizados:** {asp_result['n_points']}\n\n"
+                            f"📌 **Interpretação:** A linha verde destaca a regressão linear. A₀ é o ponto de intercepto no eixo Y. "
+                            f"Quanto maior o R², melhor o ajuste linear dos dados.")
+                    st.markdown('</div>', unsafe_allow_html=True)
+            
             # TAB 4: PERFORMANCE CARDÍACA
             with tab4:
                 st.subheader("❤️ Análise de Performance Cardíaca")
@@ -2290,10 +2185,7 @@ if uploaded_files:
                 )
                 
                 limiar_anaerobico = fc_max * 0.85
-                limiar_aerobico = fc_max * 0.75
                 
-                fig_fc_acc.add_hrect(y0=limiar_aerobico, y1=limiar_anaerobico, fillcolor="rgba(255,215,0,0.2)", line_width=0, secondary_y=False,
-                                     annotation_text="Zona Anaeróbica", annotation_position="bottom right")
                 fig_fc_acc.add_hrect(y0=limiar_anaerobico, y1=fc_max, fillcolor="rgba(231,76,60,0.2)", line_width=0, secondary_y=False,
                                      annotation_text="Zona Máxima", annotation_position="top right")
                 
@@ -2417,9 +2309,9 @@ if uploaded_files:
                                 elif var == "Tempo Total (min)":
                                     row[var] = tempos_por_periodo.get(periodo_nome, 0) / 60
                                 elif var == "TRIMP Total":
-                                    fc_max = df_temp['HeartRate'].max()
-                                    trimp_total, _ = calcular_trimp_edwards(df_temp, fc_max)
-                                    row[var] = trimp_total
+                                    fc_max_temp = df_temp['HeartRate'].max()
+                                    trimp_total_temp, _ = calcular_trimp_edwards(df_temp, fc_max_temp)
+                                    row[var] = trimp_total_temp
                             comparacao_data.append(row)
                     
                     df_comp = pd.DataFrame(comparacao_data)
