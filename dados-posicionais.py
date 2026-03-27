@@ -1900,29 +1900,28 @@ if uploaded_files:
                 st.download_button("📥 Exportar análise tática", csv_tatico, f"analise_tatica_{atleta_tatica}_{periodo_tatica}.csv")
             
             
-            # TAB 3: PERFIL ACELERAÇÃO-VELOCIDADE (COM LINHA DE ACELERAÇÃO MÁXIMA REAL)
+            # TAB 3: PERFIL ACELERAÇÃO-VELOCIDADE (COM REGRESSÃO LINEAR)
             with tab3:
                 st.subheader("⚡ Perfil Aceleração-Velocidade (Acceleration-Speed Profile)")
                 
                 # Referência científica
                 with st.expander("📄 **Referência Científica**"):
                     st.markdown("""
-                    **Modelo Físico:** a(v) = a₀ × (1 - v/v₀)
+                    **Modelo Físico:** a(v) = a₀ - k·v (Regressão Linear)
                     
                     **Referência:** Morin, J.B., Le Mat, Y., Osgnach, C., Barnabò, A., Pilati, A., Samozino, P., & di Prampero, P.E. (2021).  
                     *Individual acceleration-speed profile in-situ: a proof of concept in professional football players.*  
                     Journal of Biomechanics, 126, 110624. https://doi.org/10.1016/j.jbiomech.2021.110624
                     
                     **Interpretação:**
-                    - **a₀ (m/s²)**: Aceleração máxima teórica (capacidade de aceleração inicial)
-                    - **v₀ (m/s)**: Velocidade máxima teórica (onde a aceleração se anula)
-                    - **Pₘₐₓ (W/kg)**: Potência máxima = a₀ × v₀ / 4
+                    - **a₀ (m/s²)**: Intercepto - aceleração máxima teórica (capacidade de aceleração inicial)
+                    - **k (s⁻¹)**: Slope - taxa de declínio da aceleração com a velocidade
+                    - **v₀ (m/s)**: Velocidade máxima teórica = a₀ / |k|
                     - **R²**: Qualidade do ajuste (>0.7 = excelente)
                     
                     **Valores de referência para atletas de futebol:**
                     - a₀: 2.5-4.5 m/s²
                     - v₀: 8.5-11.5 m/s (30.6-41.4 km/h)
-                    - Pₘₐₓ: 5-12 W/kg
                     """)
                 
                 col_asp1, col_asp2 = st.columns(2)
@@ -1937,94 +1936,182 @@ if uploaded_files:
                     df_asp_atual = df_asp_atual[df_asp_atual['Atleta'] == atleta_asp]
                 
                 asp_results = {}
-                with st.spinner("Calculando perfil ASP com tratamento estatístico robusto..."):
-                    # Agrupar por atleta se necessário
+                with st.spinner("Calculando perfil ASP com regressão linear..."):
                     if atleta_asp == "Todos":
                         for atleta in df_asp_atual['Atleta'].unique():
                             df_atleta = df_asp_atual[df_asp_atual['Atleta'] == atleta]
-                            asp_metrics = calcular_asp_metrics(df_atleta)
-                            if asp_metrics:
-                                asp_results[atleta] = asp_metrics
+                            df_sprints = df_atleta[(df_atleta['Acceleration'] > 0) & (df_atleta['Velocity'] > 0)].copy()
+                            
+                            if len(df_sprints) >= 5:
+                                v_ms = df_sprints['Velocity'].values
+                                a_ms2 = df_sprints['Acceleration'].values
+                                
+                                # Regressão linear simples
+                                slope, intercept, r_value, p_value, std_err = stats.linregress(v_ms, a_ms2)
+                                
+                                a0 = intercept
+                                v0 = -a0 / slope if slope < 0 else np.max(v_ms) * 1.2
+                                v0 = np.clip(v0, 6.0, VEL_MAX_HUMANA_MS)
+                                
+                                asp_results[atleta] = {
+                                    'a0': float(a0),
+                                    'v0': float(v0),
+                                    'slope': float(slope),
+                                    'intercept': float(intercept),
+                                    'r2': float(r_value ** 2),
+                                    'v_max_real': float(np.max(v_ms)),
+                                    'a_max_real': float(np.max(a_ms2)),
+                                    'n_points': len(v_ms)
+                                }
                     else:
-                        asp_metrics = calcular_asp_metrics(df_asp_atual)
-                        if asp_metrics:
-                            asp_results[atleta_asp] = asp_metrics
+                        df_sprints = df_asp_atual[(df_asp_atual['Acceleration'] > 0) & (df_asp_atual['Velocity'] > 0)].copy()
+                        if len(df_sprints) >= 5:
+                            v_ms = df_sprints['Velocity'].values
+                            a_ms2 = df_sprints['Acceleration'].values
+                            
+                            slope, intercept, r_value, p_value, std_err = stats.linregress(v_ms, a_ms2)
+                            
+                            a0 = intercept
+                            v0 = -a0 / slope if slope < 0 else np.max(v_ms) * 1.2
+                            v0 = np.clip(v0, 6.0, VEL_MAX_HUMANA_MS)
+                            
+                            asp_results[atleta_asp] = {
+                                'a0': float(a0),
+                                'v0': float(v0),
+                                'slope': float(slope),
+                                'intercept': float(intercept),
+                                'r2': float(r_value ** 2),
+                                'v_max_real': float(np.max(v_ms)),
+                                'a_max_real': float(np.max(a_ms2)),
+                                'n_points': len(v_ms)
+                            }
                 
                 if not asp_results:
-                    st.warning("⚠️ Dados insuficientes para calcular o Perfil Aceleração-Velocidade. São necessários pelo menos 10 pontos com aceleração positiva e velocidade > 0.")
+                    st.warning("⚠️ Dados insuficientes para calcular o Perfil Aceleração-Velocidade. São necessários pelo menos 5 pontos com aceleração positiva e velocidade > 0.")
                 else:
                     st.markdown("### 📈 Curva Aceleração-Velocidade (ASP)")
-                    st.markdown("**Relação entre Velocidade (m/s) e Aceleração (m/s²) - Modelo Físico**")
+                    st.markdown("**Relação entre Velocidade (m/s) e Aceleração (m/s²) - Regressão Linear**")
                     
                     fig_asp = go.Figure()
                     
                     cores_asp = px.colors.qualitative.Plotly
+                    
                     for idx, (atleta, metrics) in enumerate(asp_results.items()):
-                        df_sprints = dfs_por_periodo[periodo_asp]
+                        df_atleta = dfs_por_periodo[periodo_asp]
                         if atleta != "Todos":
-                            df_sprints = df_sprints[df_sprints['Atleta'] == atleta]
-                        df_sprints = df_sprints[(df_sprints['Acceleration'] > 0) & (df_sprints['Velocity'] > 0)].copy()
+                            df_atleta = df_atleta[df_atleta['Atleta'] == atleta]
+                        df_sprints = df_atleta[(df_atleta['Acceleration'] > 0) & (df_atleta['Velocity'] > 0)].copy()
                         
                         if len(df_sprints) > 0:
                             v_ms = df_sprints['Velocity'].values
                             a_ms2 = df_sprints['Acceleration'].values
                             
-                            # Encontrar os valores reais máximos do atleta
-                            v_max_real = np.max(v_ms)
-                            a_max_real = np.max(a_ms2)
+                            v_max_real = metrics['v_max_real']
+                            a_max_real = metrics['a_max_real']
                             
-                            # Dados brutos
+                            # ========== 1. DADOS BRUTOS (pontos) ==========
                             fig_asp.add_trace(go.Scatter(
                                 x=v_ms, y=a_ms2,
                                 mode='markers',
                                 name=f'{atleta} - Dados',
-                                marker=dict(size=6, color=cores_asp[idx % len(cores_asp)], opacity=0.6),
+                                marker=dict(
+                                    size=8,
+                                    color=cores_asp[idx % len(cores_asp)],
+                                    opacity=0.5,
+                                    symbol='circle'
+                                ),
                                 hovertemplate=f'{atleta}<br>Vel: %{{x:.2f}} m/s (%{{x*3.6:.1f}} km/h)<br>Acel: %{{y:.2f}} m/s²<extra></extra>'
                             ))
                             
-                            # Curva do modelo ASP
-                            v_fit = np.linspace(0, min(metrics['v0'], metrics['v_max'] * 1.05), 100)
-                            a_fit = metrics['a0'] * (1 - v_fit / metrics['v0'])
+                            # ========== 2. LINHA DE REGRESSÃO LINEAR (DESTACADA) ==========
+                            v_max_teorico = metrics['v0']
+                            v_fit = np.linspace(0, min(v_max_teorico, max(v_ms) * 1.2), 100)
+                            a_fit = metrics['intercept'] + metrics['slope'] * v_fit
+                            a_fit = np.maximum(a_fit, 0)
+                            
+                            slope_val = metrics['slope']
+                            intercept_val = metrics['intercept']
+                            r2_val = metrics['r2']
+                            
+                            equation_text = f"y = {slope_val:.3f}x + {intercept_val:.2f}<br>R² = {r2_val:.3f}"
                             
                             fig_asp.add_trace(go.Scatter(
                                 x=v_fit, y=a_fit,
                                 mode='lines',
-                                name=f'{atleta} - Modelo',
-                                line=dict(color=cores_asp[idx % len(cores_asp)], width=3, dash='dash'),
-                                hovertemplate=f'{atleta}<br>a = {metrics["a0"]:.2f} × (1 - v/{metrics["v0"]:.2f})<br>v: %{{x:.2f}} m/s<br>a: %{{y:.2f}} m/s²<extra></extra>'
+                                name=f'{atleta} - Regressão Linear',
+                                line=dict(
+                                    color=cores_asp[idx % len(cores_asp)],
+                                    width=4,
+                                    dash='solid'
+                                ),
+                                hovertemplate=f'{atleta}<br>{equation_text}<br>v: %{{x:.2f}} m/s<br>a: %{{y:.2f}} m/s²<extra></extra>'
                             ))
                             
-                            # Linha horizontal de aceleração máxima REAL (do eixo Y até o ponto de velocidade máxima real)
+                            # ========== 3. LINHA DE ACELERAÇÃO MÁXIMA REAL (TRANSLÚCIDA) ==========
                             fig_asp.add_trace(go.Scatter(
                                 x=[0, v_max_real], 
                                 y=[a_max_real, a_max_real],
                                 mode='lines',
                                 name=f'{atleta} - Aceleração Máxima Real',
-                                line=dict(color='red', width=3, dash='dot'),
-                                hovertemplate=f'Aceleração Máxima Real: {a_max_real:.2f} m/s²<br>Velocidade Máxima: %{{x:.2f}} m/s<extra></extra>'
+                                line=dict(
+                                    color='red',
+                                    width=2,
+                                    dash='dot'
+                                ),
+                                opacity=0.5,
+                                hovertemplate=f'Aceleração Máxima Real: {a_max_real:.2f} m/s²<extra></extra>'
                             ))
                             
-                            # Linha vertical de velocidade máxima REAL (do eixo X até o ponto de aceleração máxima real)
+                            # ========== 4. LINHA DE VELOCIDADE MÁXIMA REAL (TRANSLÚCIDA) ==========
                             fig_asp.add_trace(go.Scatter(
                                 x=[v_max_real, v_max_real], 
                                 y=[0, a_max_real],
                                 mode='lines',
                                 name=f'{atleta} - Velocidade Máxima Real',
-                                line=dict(color='orange', width=3, dash='dot'),
+                                line=dict(
+                                    color='orange',
+                                    width=2,
+                                    dash='dot'
+                                ),
+                                opacity=0.5,
                                 hovertemplate=f'Velocidade Máxima Real: {v_max_real:.2f} m/s ({v_max_real*3.6:.1f} km/h)<extra></extra>'
                             ))
                             
-                            # Ponto de interseção (velocidade máxima real, aceleração máxima real)
+                            # ========== 5. PONTO DE PERFORMANCE MÁXIMA REAL ==========
                             fig_asp.add_trace(go.Scatter(
                                 x=[v_max_real], 
                                 y=[a_max_real],
                                 mode='markers',
                                 name=f'{atleta} - Ponto de Performance Máxima Real',
-                                marker=dict(size=16, color='gold', symbol='star', line=dict(width=2, color='white')),
-                                hovertemplate=f'{atleta}<br><b>Velocidade Máxima Real:</b> {v_max_real:.2f} m/s ({v_max_real*3.6:.1f} km/h)<br><b>Aceleração Máxima Real:</b> {a_max_real:.2f} m/s²<br><b>Ponto de Máxima Performance</b><extra></extra>'
+                                marker=dict(
+                                    size=14,
+                                    color='gold',
+                                    symbol='star',
+                                    line=dict(width=2, color='white')
+                                ),
+                                hovertemplate=f'{atleta}<br><b>Velocidade Máxima Real:</b> {v_max_real:.2f} m/s ({v_max_real*3.6:.1f} km/h)<br><b>Aceleração Máxima Real:</b> {a_max_real:.2f} m/s²<extra></extra>'
                             ))
                             
-                            # Adicionar anotação para o valor de aceleração máxima real no eixo Y
+                            # ========== 6. ANOTAÇÃO DA EQUAÇÃO NO GRÁFICO ==========
+                            x_pos = max(v_ms) * 0.6 if max(v_ms) > 5 else max(v_ms) * 0.7
+                            y_pos = max(a_ms2) * 0.85
+                            
+                            fig_asp.add_annotation(
+                                x=x_pos,
+                                y=y_pos,
+                                xref="x",
+                                yref="y",
+                                text=f"<b>{atleta}</b><br>y = {slope_val:.3f}x + {intercept_val:.2f}<br>R² = {r2_val:.3f}",
+                                showarrow=False,
+                                font=dict(size=11, color=cores_asp[idx % len(cores_asp)], weight="bold"),
+                                bgcolor="rgba(0,0,0,0.7)",
+                                borderpad=6,
+                                borderwidth=1,
+                                bordercolor=cores_asp[idx % len(cores_asp)],
+                                align="left"
+                            )
+                            
+                            # Anotação para aceleração máxima real no eixo Y
                             fig_asp.add_annotation(
                                 x=0,
                                 y=a_max_real,
@@ -2036,14 +2123,15 @@ if uploaded_files:
                                 arrowsize=1,
                                 arrowwidth=2,
                                 arrowcolor="red",
-                                ax=-60,
+                                ax=-50,
                                 ay=0,
-                                font=dict(size=10, color="red", weight="bold"),
+                                font=dict(size=10, color="red"),
                                 bgcolor="rgba(0,0,0,0.6)",
-                                borderpad=4
+                                borderpad=3,
+                                opacity=0.8
                             )
                             
-                            # Adicionar anotação para o valor de velocidade máxima real no eixo X
+                            # Anotação para velocidade máxima real no eixo X
                             fig_asp.add_annotation(
                                 x=v_max_real,
                                 y=0,
@@ -2056,83 +2144,71 @@ if uploaded_files:
                                 arrowwidth=2,
                                 arrowcolor="orange",
                                 ax=0,
-                                ay=-50,
-                                font=dict(size=10, color="orange", weight="bold"),
+                                ay=-45,
+                                font=dict(size=10, color="orange"),
                                 bgcolor="rgba(0,0,0,0.6)",
-                                borderpad=4
-                            )
-                            
-                            # Adicionar também as métricas teóricas para referência
-                            a0_teorico = metrics['a0']
-                            v0_teorico = metrics['v0']
-                            
-                            fig_asp.add_annotation(
-                                x=v0_teorico * 0.7,
-                                y=a0_teorico * 0.8,
-                                xref="x",
-                                yref="y",
-                                text=f"Modelo: a₀ = {a0_teorico:.2f} m/s²<br>v₀ = {v0_teorico:.2f} m/s ({v0_teorico*3.6:.1f} km/h)",
-                                showarrow=False,
-                                font=dict(size=9, color="white"),
-                                bgcolor="rgba(0,0,0,0.5)",
-                                borderpad=4,
-                                bordercolor=cores_asp[idx % len(cores_asp)],
-                                borderwidth=1
+                                borderpad=3,
+                                opacity=0.8
                             )
                     
-                    # Ajustar os limites dos eixos para garantir que as linhas sejam totalmente visíveis
-                    max_a0_real = 0
-                    max_v_real = 0
-                    for atleta, metrics in asp_results.items():
-                        df_atleta = dfs_por_periodo[periodo_asp]
-                        if atleta != "Todos":
-                            df_atleta = df_atleta[df_atleta['Atleta'] == atleta]
-                        df_sprints = df_atleta[(df_atleta['Acceleration'] > 0) & (df_atleta['Velocity'] > 0)]
-                        if len(df_sprints) > 0:
-                            max_a0_real = max(max_a0_real, df_sprints['Acceleration'].max())
-                            max_v_real = max(max_v_real, df_sprints['Velocity'].max())
+                    # Ajustar os limites dos eixos
+                    max_a0_real = max([m['a_max_real'] for m in asp_results.values()]) if asp_results else 5
+                    max_v_real = max([m['v_max_real'] for m in asp_results.values()]) if asp_results else 10
                     
                     fig_asp.update_layout(
                         title=f"<b>Perfil Aceleração-Velocidade - {periodo_asp}</b>",
                         xaxis=dict(
                             title="<b>Velocidade (m/s)</b>", 
-                            gridcolor='rgba(255,255,255,0.1)',
-                            range=[-0.5, max_v_real * 1.15]
+                            gridcolor='rgba(255,255,255,0.15)',
+                            range=[-0.5, max_v_real * 1.15],
+                            showgrid=True,
+                            zeroline=True,
+                            zerolinecolor='rgba(255,255,255,0.3)',
+                            zerolinewidth=1
                         ),
                         yaxis=dict(
                             title="<b>Aceleração (m/s²)</b>", 
-                            gridcolor='rgba(255,255,255,0.1)',
-                            range=[-0.5, max_a0_real * 1.15]
+                            gridcolor='rgba(255,255,255,0.15)',
+                            range=[-0.5, max_a0_real * 1.15],
+                            showgrid=True,
+                            zeroline=True,
+                            zerolinecolor='rgba(255,255,255,0.3)',
+                            zerolinewidth=1
                         ),
                         height=600,
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+                        legend=dict(
+                            orientation="h", 
+                            yanchor="bottom", 
+                            y=1.02, 
+                            xanchor="center", 
+                            x=0.5,
+                            bgcolor='rgba(0,0,0,0.5)',
+                            font=dict(size=10)
+                        ),
                         plot_bgcolor='rgba(0,0,0,0.2)',
                         paper_bgcolor='rgba(0,0,0,0)',
-                        hovermode='closest'
+                        hovermode='closest',
+                        margin=dict(l=80, r=80, t=80, b=80)
                     )
                     
                     st.plotly_chart(fig_asp, use_container_width=True)
                     
                     st.markdown("### 📊 Métricas do Perfil Aceleração-Velocidade")
                     
-                    # Criar DataFrame com métricas reais e teóricas
+                    # Criar DataFrame com métricas
                     dados_asp = []
                     for atleta, metrics in asp_results.items():
-                        df_atleta = dfs_por_periodo[periodo_asp]
-                        if atleta != "Todos":
-                            df_atleta = df_atleta[df_atleta['Atleta'] == atleta]
-                        df_atleta_sprints = df_atleta[(df_atleta['Acceleration'] > 0) & (df_atleta['Velocity'] > 0)]
-                        
                         dados_asp.append({
                             'Atleta': atleta,
-                            'a₀ Teórico (m/s²)': metrics['a0'],
+                            'a₀ (m/s²)': metrics['a0'],
+                            'k (s⁻¹)': abs(metrics['slope']),
                             'v₀ Teórico (m/s)': metrics['v0'],
                             'v₀ Teórico (km/h)': metrics['v0'] * 3.6,
-                            'aₘₐₓ Real (m/s²)': df_atleta_sprints['Acceleration'].max() if len(df_atleta_sprints) > 0 else 0,
-                            'vₘₐₓ Real (m/s)': df_atleta_sprints['Velocity'].max() if len(df_atleta_sprints) > 0 else 0,
-                            'vₘₐₓ Real (km/h)': df_atleta_sprints['Velocity'].max() * 3.6 if len(df_atleta_sprints) > 0 else 0,
-                            'Pₘₐₓ (W/kg)': metrics['p_max'],
-                            'R²': metrics['r2']
+                            'aₘₐₓ Real (m/s²)': metrics['a_max_real'],
+                            'vₘₐₓ Real (m/s)': metrics['v_max_real'],
+                            'vₘₐₓ Real (km/h)': metrics['v_max_real'] * 3.6,
+                            'R²': metrics['r2'],
+                            'Equação': f"a = {metrics['slope']:.3f}v + {metrics['intercept']:.2f}"
                         })
                     
                     asp_df = pd.DataFrame(dados_asp).round(3)
@@ -2151,12 +2227,12 @@ if uploaded_files:
                     col_asp_metrics1, col_asp_metrics2, col_asp_metrics3, col_asp_metrics4 = st.columns(4)
                     
                     with col_asp_metrics1:
-                        a0_medio = asp_df['a₀ Teórico (m/s²)'].mean()
+                        a0_medio = asp_df['a₀ (m/s²)'].mean()
                         st.markdown(f"""
                         <div class="metric-card">
                             <div class="metric-value">{a0_medio:.2f}</div>
-                            <div class="metric-label">a₀ Teórico (m/s²)</div>
-                            <div style="font-size:0.7rem">⚡ Capacidade teórica de aceleração</div>
+                            <div class="metric-label">a₀ (m/s²)</div>
+                            <div style="font-size:0.7rem">⚡ Aceleração máxima teórica</div>
                         </div>
                         """, unsafe_allow_html=True)
                     
@@ -2176,7 +2252,7 @@ if uploaded_files:
                         <div class="metric-card">
                             <div class="metric-value">{v0_medio:.1f}</div>
                             <div class="metric-label">v₀ Teórico (km/h)</div>
-                            <div style="font-size:0.7rem">🏃 Velocidade teórica máxima</div>
+                            <div style="font-size:0.7rem">🏃 Velocidade máxima teórica</div>
                         </div>
                         """, unsafe_allow_html=True)
                     
@@ -2191,9 +2267,9 @@ if uploaded_files:
                         """, unsafe_allow_html=True)
                     
                     st.markdown('<div class="info-card">', unsafe_allow_html=True)
-                    st.info("📊 **Tratamento Estatístico Aplicado:** Filtro IQR para remoção de outliers, regressão robusta RANSAC, limites fisiológicos (a₀: 1.5-6.0 m/s², v₀: 6.0-13.0 m/s, Pₘₐₓ: 4-20 W/kg)\n\n📌 **Interpretação:** A linha vermelha representa a aceleração máxima REAL do atleta, partindo do eixo Y (x=0) no valor da aceleração máxima atingida e indo até a velocidade máxima real. A linha laranja representa a velocidade máxima real do atleta.")
+                    st.info("📊 **Regressão Linear Aplicada:** Ajuste linear simples aos dados de aceleração-velocidade. A equação da reta é exibida no gráfico.\n\n📌 **Interpretação:** A linha vermelha (translúcida) representa a aceleração máxima REAL, a linha laranja (translúcida) representa a velocidade máxima REAL. A linha destacada (cor sólida) é a regressão linear com a equação exibida.")
                     st.markdown('</div>', unsafe_allow_html=True)
-            
+                                
             # TAB 4: PERFORMANCE CARDÍACA
             with tab4:
                 st.subheader("❤️ Análise de Performance Cardíaca")
