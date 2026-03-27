@@ -250,6 +250,11 @@ VEL_MIN_HUMANA_MS = 0.0
 ACEL_MAX_HUMANA_MS2 = 7.0
 DESACEL_MAX_HUMANA_MS2 = -8.5
 
+# ==================== REFERÊNCIA CIENTÍFICA ====================
+# Morin, J.B., Le Mat, Y., Osgnach, C., Barnabò, A., Pilati, A., Samozino, P., & di Prampero, P.E. (2021).
+# Individual acceleration-speed profile in-situ: a proof of concept in professional football players.
+# Journal of Biomechanics, 126, 110624. https://doi.org/10.1016/j.jbiomech.2021.110624
+
 # ==================== FUNÇÃO DE VALIDAÇÃO E FILTRAGEM ====================
 
 def validar_e_filtrar_dados(df):
@@ -377,8 +382,10 @@ def format_athlete_name(athlete):
 
 def fit_velocidade_aceleracao(velocidades, aceleracoes):
     """
-    Ajusta a curva de relação Aceleração-Velocidade baseada no modelo físico correto:
+    Ajusta a curva de relação Aceleração-Velocidade baseada no modelo físico:
     a(v) = a0 * (1 - v/v0)
+    
+    Referência: Morin et al. (2021) - Journal of Biomechanics
     """
     mask = (velocidades > 0) & (aceleracoes > -5) & (aceleracoes < 10) & (~np.isnan(velocidades)) & (~np.isnan(aceleracoes))
     v_clean = velocidades[mask]
@@ -1892,13 +1899,19 @@ if uploaded_files:
                 csv_tatico = zona_metrics.reset_index().to_csv(index=False)
                 st.download_button("📥 Exportar análise tática", csv_tatico, f"analise_tatica_{atleta_tatica}_{periodo_tatica}.csv")
             
-                        # TAB 3: PERFIL ACELERAÇÃO-VELOCIDADE (COM LINHA DE ACELERAÇÃO MÁXIMA REAL)
+            
+            # TAB 3: PERFIL ACELERAÇÃO-VELOCIDADE (COM LINHA DE ACELERAÇÃO MÁXIMA REAL)
             with tab3:
                 st.subheader("⚡ Perfil Aceleração-Velocidade (Acceleration-Speed Profile)")
                 
+                # Referência científica
                 with st.expander("📄 **Referência Científica**"):
                     st.markdown("""
                     **Modelo Físico:** a(v) = a₀ × (1 - v/v₀)
+                    
+                    **Referência:** Morin, J.B., Le Mat, Y., Osgnach, C., Barnabò, A., Pilati, A., Samozino, P., & di Prampero, P.E. (2021).  
+                    *Individual acceleration-speed profile in-situ: a proof of concept in professional football players.*  
+                    Journal of Biomechanics, 126, 110624. https://doi.org/10.1016/j.jbiomech.2021.110624
                     
                     **Interpretação:**
                     - **a₀ (m/s²)**: Aceleração máxima teórica (capacidade de aceleração inicial)
@@ -1956,7 +1969,7 @@ if uploaded_files:
                             v_ms = df_sprints['Velocity'].values
                             a_ms2 = df_sprints['Acceleration'].values
                             
-                            # Encontrar os valores reais máximos do atleta (não os teóricos do modelo)
+                            # Encontrar os valores reais máximos do atleta
                             v_max_real = np.max(v_ms)
                             a_max_real = np.max(a_ms2)
                             
